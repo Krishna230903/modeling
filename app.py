@@ -191,6 +191,14 @@ st.markdown("""
     .stSelectbox div, .stSlider div {
         color: #000000;
     }
+
+    /* Force Streamlit Metric Widget text to black */
+    [data-testid="stMetricLabel"] {
+        color: #000000 !important;
+    }
+    [data-testid="stMetricValue"] {
+        color: #000000 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
