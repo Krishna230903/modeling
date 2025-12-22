@@ -10,9 +10,10 @@ import time
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="IFAVP | Financial Analytics",
+    page_title="IFAVP | Institutional Analytics",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    page_icon="📊"
 )
 
 # --- 2. SESSION STATE (AUTH) ---
@@ -23,47 +24,102 @@ if 'authenticated' not in st.session_state:
 if 'user' not in st.session_state:
     st.session_state['user'] = None
 
-# --- 3. CUSTOM CSS (PROFESSIONAL THEME) ---
+# --- 3. PREMIUM CORPORATE CSS ---
 st.markdown("""
 <style>
-    /* Global Font */
-    html, body, [class*="css"] {
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    /* MAIN BACKGROUND */
+    .stApp {
+        background-color: #f4f6f9;
     }
-    /* Headers */
+
+    /* SIDEBAR STYLING - Dark Theme */
+    section[data-testid="stSidebar"] {
+        background-color: #2c3e50;
+    }
+    section[data-testid="stSidebar"] h1, 
+    section[data-testid="stSidebar"] h2, 
+    section[data-testid="stSidebar"] h3, 
+    section[data-testid="stSidebar"] label, 
+    section[data-testid="stSidebar"] .stMarkdown p {
+        color: #ecf0f1 !important;
+    }
+    section[data-testid="stSidebar"] .stButton button {
+        background-color: #e74c3c;
+        color: white;
+        border: none;
+    }
+    
+    /* CUSTOM METRIC CARD */
+    .metric-container {
+        background-color: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        border-left: 5px solid #3498db;
+        text-align: center;
+        transition: transform 0.2s;
+    }
+    .metric-container:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+    }
+    .metric-label {
+        font-size: 12px;
+        color: #7f8c8d;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 5px;
+    }
+    .metric-value {
+        font-size: 26px;
+        font-weight: 700;
+        color: #2c3e50;
+    }
+    .metric-delta {
+        font-size: 14px;
+        font-weight: 500;
+        margin-top: 5px;
+    }
+    .delta-pos { color: #27ae60; }
+    .delta-neg { color: #c0392b; }
+
+    /* HEADERS */
     h1, h2, h3 {
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
         color: #2c3e50;
         font-weight: 600;
     }
-    /* Metric Cards */
-    .metric-card {
-        background-color: #ffffff;
-        padding: 20px;
-        border: 1px solid #e0e0e0;
-        border-radius: 5px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+
+    /* LOGIN CARD */
+    .login-card {
+        background-color: white;
+        padding: 40px;
+        border-radius: 10px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        text-align: center;
+        max-width: 400px;
+        margin: 50px auto;
     }
-    /* Sidebar */
-    section[data-testid="stSidebar"] {
-        background-color: #f8f9fa;
-    }
-    /* Tabs */
+    
+    /* TAB STYLING */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 20px;
+        gap: 10px;
+        background-color: white;
+        padding: 10px 10px 0 10px;
+        border-radius: 10px 10px 0 0;
+        border-bottom: 1px solid #ddd;
     }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
-        white-space: pre-wrap;
-        background-color: transparent;
-        border-radius: 4px 4px 0px 0px;
-        color: #4a4a4a;
-        font-weight: 500;
+        border-radius: 5px 5px 0 0;
+        font-weight: 600;
+        color: #7f8c8d;
     }
     .stTabs [aria-selected="true"] {
-        background-color: #ffffff;
-        color: #1f77b4;
-        border-bottom: 2px solid #1f77b4;
+        color: #3498db;
+        background-color: #ebf5fb;
     }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -147,14 +203,11 @@ class PDFReport(FPDF):
 def generate_pdf(ticker, data, valuation, upside):
     pdf = PDFReport()
     pdf.add_page()
-    
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, f"Investment Note: {ticker}", 0, 1)
-    
     pdf.set_font("Arial", size=10)
     pdf.cell(0, 10, f"Date: {datetime.now().strftime('%d %B %Y')}", 0, 1)
     pdf.ln(5)
-    
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "Executive Summary", 0, 1)
     pdf.set_font("Arial", size=11)
@@ -172,7 +225,6 @@ def generate_pdf(ticker, data, valuation, upside):
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "Key Financial Metrics (Latest FY)", 0, 1)
     pdf.set_font("Arial", size=11)
-    
     metrics = (
         f"- Revenue: INR {data['Revenue'].iloc[-1]:,.0f} Cr\n"
         f"- EBITDA Margin: {(data['EBITDA'].iloc[-1]/data['Revenue'].iloc[-1])*100:.1f}%\n"
@@ -182,22 +234,45 @@ def generate_pdf(ticker, data, valuation, upside):
     )
     pdf.multi_cell(0, 8, metrics)
     pdf.ln(10)
-    
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 8. AUTHENTICATION SCREENS ---
+# --- 8. UI HELPER FUNCTIONS ---
+def display_metric_card(label, value, delta=None):
+    delta_html = ""
+    if delta:
+        color_class = "delta-pos" if delta > 0 else "delta-neg"
+        arrow = "▲" if delta > 0 else "▼"
+        delta_html = f'<div class="metric-delta {color_class}">{arrow} {abs(delta):.1f}%</div>'
+        
+    html = f"""
+    <div class="metric-container">
+        <div class="metric-label">{label}</div>
+        <div class="metric-value">{value}</div>
+        {delta_html}
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+# --- 9. AUTHENTICATION SCREENS ---
 def login_page():
-    st.markdown("<h1 style='text-align: center; color: #333;'>IFAVP Portal</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>Financial Analytics & Valuation System</p>", unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1,2,1])
+    # Centered Column
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        tab_login, tab_signup = st.tabs(["Login", "Sign Up"])
+        st.markdown("""
+        <div class="login-card">
+            <h2 style="color:#2c3e50;">IFAVP Portal</h2>
+            <p style="color:#7f8c8d; font-size: 14px;">Secure Financial Analytics Access</p>
+            <hr style="margin: 20px 0; border-top: 1px solid #eee;">
+        </div>
+        """, unsafe_allow_html=True)
+        
+        tab_login, tab_signup = st.tabs(["🔒 Secure Login", "📝 New Registration"])
         
         with tab_login:
             with st.form("login_form"):
                 username = st.text_input("Username")
                 password = st.text_input("Password", type="password")
+                st.markdown("<br>", unsafe_allow_html=True)
                 submit = st.form_submit_button("Access Dashboard", use_container_width=True)
                 
                 if submit:
@@ -213,6 +288,7 @@ def login_page():
                 new_user = st.text_input("New Username")
                 new_pass = st.text_input("New Password", type="password")
                 confirm_pass = st.text_input("Confirm Password", type="password")
+                st.markdown("<br>", unsafe_allow_html=True)
                 signup_submit = st.form_submit_button("Create Account", use_container_width=True)
                 
                 if signup_submit:
@@ -226,72 +302,105 @@ def login_page():
                         st.session_state['users'][new_user] = new_pass
                         st.success("Account created! Please login.")
 
-# --- 9. MAIN DASHBOARD ---
+# --- 10. MAIN DASHBOARD ---
 def dashboard():
-    # Sidebar
-    st.sidebar.title("Control Panel")
-    st.sidebar.markdown(f"User: **{st.session_state['user']}**")
+    # SIDEBAR
+    st.sidebar.markdown("""
+    <div style="text-align: center; padding: 10px 0;">
+        <h2 style="color: white; margin: 0;">IFAVP</h2>
+        <p style="color: #bdc3c7; font-size: 12px; margin: 0;">INSTITUTIONAL GRADE ANALYTICS</p>
+    </div>
+    <hr style="border-top: 1px solid #34495e;">
+    """, unsafe_allow_html=True)
+    
+    st.sidebar.markdown(f"**Analyst:** {st.session_state['user']}")
     
     if st.sidebar.button("Log Out"):
         st.session_state['authenticated'] = False
         st.session_state['user'] = None
         st.rerun()
         
-    st.sidebar.divider()
-    
+    st.sidebar.markdown("### 📂 Data Management")
     uploaded_file = st.sidebar.file_uploader("Upload Data File (XLSX)", type=["xlsx"])
 
     if uploaded_file:
         raw_data, companies = load_data(uploaded_file)
         
-        selected_ticker = st.sidebar.selectbox("Select Entity", companies)
+        if raw_data is None:
+            return
+
+        st.sidebar.markdown("### 🏢 Entity Selection")
+        selected_ticker = st.sidebar.selectbox("Choose Company", companies, label_visibility="collapsed")
+        
+        if not selected_ticker:
+            st.warning("No companies found in the uploaded file.")
+            return
+
         df_raw = raw_data[selected_ticker].copy()
         df = process_metrics(df_raw)
         
-        # Assumptions
-        st.sidebar.markdown("### Valuation Assumptions")
-        wacc = st.sidebar.slider("WACC (%)", 8.0, 15.0, 11.5, 0.1) / 100
-        term_growth = st.sidebar.slider("Terminal Growth (%)", 3.0, 8.0, 5.0, 0.5) / 100
-        proj_growth = st.sidebar.slider("Projected Growth (%)", 0.0, 20.0, 10.0, 1.0) / 100
+        # Assumptions in Expander to save space
+        with st.sidebar.expander("⚙️ Valuation Assumptions", expanded=True):
+            wacc = st.slider("WACC (%)", 8.0, 15.0, 11.5, 0.1) / 100
+            term_growth = st.slider("Terminal Growth (%)", 3.0, 8.0, 5.0, 0.5) / 100
+            proj_growth = st.slider("Proj. Growth (%)", 0.0, 20.0, 10.0, 1.0) / 100
         
         # Main Header
-        st.title(f"{selected_ticker}: Financial Analysis")
+        st.title(f"{selected_ticker} Financial Analysis")
+        st.markdown(f"**Reporting Currency:** INR (Crores) | **Valuation Date:** {datetime.now().strftime('%Y-%m-%d')}")
         st.markdown("---")
         
         latest = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # KPI Row
+        # CUSTOM METRIC CARDS
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Revenue (INR Cr)", f"{latest['Revenue']:,.0f}", f"{((latest['Revenue']-prev['Revenue'])/prev['Revenue']*100):.1f}%")
-        k2.metric("Net Profit (INR Cr)", f"{latest['Net_Income']:,.0f}", f"{((latest['Net_Income']-prev['Net_Income'])/prev['Net_Income']*100):.1f}%")
-        k3.metric("EBITDA Margin", f"{(latest['EBITDA']/latest['Revenue']*100):.1f}%")
-        k4.metric("Market Price", f"{latest['Avg_Price']:,.2f}")
+        with k1:
+            rev_growth = ((latest['Revenue']-prev['Revenue'])/prev['Revenue']*100)
+            display_metric_card("Total Revenue", f"₹ {latest['Revenue']:,.0f}", rev_growth)
+        with k2:
+            prof_growth = ((latest['Net_Income']-prev['Net_Income'])/prev['Net_Income']*100)
+            display_metric_card("Net Profit", f"₹ {latest['Net_Income']:,.0f}", prof_growth)
+        with k3:
+            display_metric_card("EBITDA Margin", f"{(latest['EBITDA']/latest['Revenue']*100):.1f}%")
+        with k4:
+            display_metric_card("Market Price", f"₹ {latest['Avg_Price']:,.2f}")
         
+        st.markdown("<br>", unsafe_allow_html=True)
+
         # Tabs
-        tabs = st.tabs(["Performance", "Valuation Model", "Risk Analysis", "Peer Comparison", "Report Export"])
+        tabs = st.tabs(["📊 Performance", "💰 Valuation", "🎲 Risk Lab", "⚖️ Peers", "📄 Report"])
         
         # Tab 1: Performance
         with tabs[0]:
-            st.subheader("Financial Performance Trends")
+            st.subheader("Financial Health Assessment")
             
             fig_dupont = go.Figure()
-            fig_dupont.add_trace(go.Bar(x=df['Year'], y=df['ROE']*100, name='ROE %', marker_color='#2c3e50', opacity=0.7))
-            fig_dupont.add_trace(go.Scatter(x=df['Year'], y=df['Net_Margin']*100, name='Net Margin %', line=dict(color='#e74c3c')))
-            fig_dupont.update_layout(title="Return on Equity Breakdown", hovermode="x unified", legend=dict(orientation="h", y=1.1))
+            fig_dupont.add_trace(go.Bar(x=df['Year'], y=df['ROE']*100, name='ROE %', marker_color='#2c3e50', opacity=0.8))
+            fig_dupont.add_trace(go.Scatter(x=df['Year'], y=df['Net_Margin']*100, name='Net Margin %', line=dict(color='#e74c3c', width=3)))
+            fig_dupont.update_layout(
+                title="DuPont Analysis: ROE Drivers", 
+                hovermode="x unified", 
+                legend=dict(orientation="h", y=1.1),
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                font=dict(family="Helvetica Neue", color="#2c3e50")
+            )
             st.plotly_chart(fig_dupont, use_container_width=True)
             
             c1, c2 = st.columns(2)
             with c1:
                 fig_rev = px.bar(df, x='Year', y='Revenue', title="Revenue Trajectory", color_discrete_sequence=['#3498db'])
+                fig_rev.update_layout(plot_bgcolor='white')
                 st.plotly_chart(fig_rev, use_container_width=True)
             with c2:
                 fig_eps = px.line(df, x='Year', y='Net_Income', title="Net Profit Growth", color_discrete_sequence=['#2ecc71'])
+                fig_eps.update_layout(plot_bgcolor='white')
                 st.plotly_chart(fig_eps, use_container_width=True)
 
         # Tab 2: Valuation
         with tabs[1]:
-            st.subheader("Discounted Cash Flow (DCF) Valuation")
+            st.subheader("Discounted Cash Flow (DCF) Model")
             
             intrinsic_val, future_fcf, pv_fcf, pv_term, equity_val = calculate_dcf(df, wacc, term_growth, proj_growth, 0.6)
             curr_price = latest['Avg_Price']
@@ -299,9 +408,14 @@ def dashboard():
             
             v1, v2 = st.columns([1, 2])
             with v1:
-                st.markdown("#### Valuation Summary")
-                st.metric("Intrinsic Value", f"INR {intrinsic_val:,.2f}")
-                st.metric("Market Price", f"INR {curr_price:,.2f}")
+                st.markdown("""
+                <div style="background-color: white; padding: 20px; border-radius: 8px; border: 1px solid #eee;">
+                    <h4 style="margin-top:0;">Valuation Conclusion</h4>
+                    <hr>
+                </div>
+                """, unsafe_allow_html=True)
+                st.metric("Intrinsic Value", f"₹ {intrinsic_val:,.2f}")
+                st.metric("Market Price", f"₹ {curr_price:,.2f}")
                 
                 if upside > 0:
                     st.success(f"Undervalued by {upside:.1f}%")
@@ -315,16 +429,16 @@ def dashboard():
                     y = [sum(pv_fcf), pv_term, 0, -latest['Total_Debt'], latest['Cash_Equivalents'], 0],
                     connector = {"line":{"color":"#333"}}
                 ))
-                fig_water.update_layout(title="Valuation Bridge")
+                fig_water.update_layout(title="Valuation Bridge (INR Cr)", plot_bgcolor='white')
                 st.plotly_chart(fig_water, use_container_width=True)
 
         # Tab 3: Risk
         with tabs[2]:
-            st.subheader("Sensitivity & Simulation")
+            st.subheader("Risk Sensitivity & Simulation")
             r1, r2 = st.columns(2)
             
             with r1:
-                st.markdown("#### Sensitivity Analysis")
+                st.markdown("#### Sensitivity Heatmap")
                 wacc_range = np.linspace(wacc - 0.02, wacc + 0.02, 5)
                 growth_range = np.linspace(term_growth - 0.01, term_growth + 0.01, 5)
                 z_values = []
@@ -340,7 +454,7 @@ def dashboard():
                     x=[f"{g*100:.1f}%" for g in growth_range],
                     y=[f"{w*100:.1f}%" for w in wacc_range],
                     colorscale='Blues'))
-                fig_heat.update_layout(title="Share Price Sensitivity (WACC vs Growth)", xaxis_title="Terminal Growth", yaxis_title="WACC")
+                fig_heat.update_layout(title="Share Price vs Assumptions", xaxis_title="Terminal Growth", yaxis_title="WACC")
                 st.plotly_chart(fig_heat, use_container_width=True)
 
             with r2:
@@ -351,7 +465,7 @@ def dashboard():
                 for i in range(30):
                     fig_mc.add_trace(go.Scatter(y=paths[:, i], mode='lines', opacity=0.15, showlegend=False, line=dict(color='#34495e')))
                 fig_mc.add_trace(go.Scatter(y=np.mean(paths, axis=1), mode='lines', name='Mean Path', line=dict(color='#c0392b', width=2)))
-                fig_mc.update_layout(title="Projected Price Paths (1 Year)", xaxis_title="Trading Days", yaxis_title="Price")
+                fig_mc.update_layout(title="Projected Price Paths (1 Year)", xaxis_title="Trading Days", yaxis_title="Price", plot_bgcolor='white')
                 st.plotly_chart(fig_mc, use_container_width=True)
 
         # Tab 4: Peers
@@ -370,28 +484,40 @@ def dashboard():
                 })
             
             peer_df = pd.DataFrame(peers_data).set_index('Entity')
-            st.dataframe(peer_df.style.format({
-                "Revenue": "{:,.0f}",
-                "EBITDA Margin": "{:.1%}",
-                "ROE": "{:.1%}",
-                "P/E": "{:.1f}x",
-                "EV/EBITDA": "{:.1f}x"
-            }))
+            
+            # Use columns to make table centered
+            c1, c2, c3 = st.columns([1, 4, 1])
+            with c2:
+                st.dataframe(peer_df.style.format({
+                    "Revenue": "{:,.0f}",
+                    "EBITDA Margin": "{:.1%}",
+                    "ROE": "{:.1%}",
+                    "P/E": "{:.1f}x",
+                    "EV/EBITDA": "{:.1f}x"
+                }).background_gradient(cmap="Blues", subset=['ROE', 'EBITDA Margin']), use_container_width=True)
 
         # Tab 5: Report
         with tabs[4]:
-            st.subheader("Report Generation")
-            st.info("Generate a standardized PDF investment note.")
-            if st.button("Download PDF Report"):
-                pdf_bytes = generate_pdf(selected_ticker, df, intrinsic_val, upside)
-                b64 = base64.b64encode(pdf_bytes).decode()
-                href = f'<a href="data:application/octet-stream;base64,{b64}" download="{selected_ticker}_Valuation_Report.pdf">Click here to Download PDF</a>'
-                st.markdown(href, unsafe_allow_html=True)
+            st.subheader("Investment Committee Report")
+            col_gen, col_empty = st.columns([1, 2])
+            with col_gen:
+                st.info("Generate a standardized PDF investment note for internal review.")
+                if st.button("📄 Generate Report PDF"):
+                    pdf_bytes = generate_pdf(selected_ticker, df, intrinsic_val, upside)
+                    b64 = base64.b64encode(pdf_bytes).decode()
+                    href = f'<a href="data:application/octet-stream;base64,{b64}" download="{selected_ticker}_Valuation_Report.pdf" style="text-decoration:none; color:white; background-color:#27ae60; padding:10px 20px; border-radius:5px; display:inline-block;">Download PDF Report</a>'
+                    st.markdown(href, unsafe_allow_html=True)
 
     else:
-        st.info("System Ready. Please upload the master data file to proceed.")
+        # Empty State
+        st.markdown("""
+        <div style="text-align: center; margin-top: 50px;">
+            <h3 style="color: #bdc3c7;">Waiting for Data Input...</h3>
+            <p style="color: #95a5a6;">Please upload the Master Data File via the sidebar to initialize the dashboard.</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-# --- 10. MAIN APP CONTROLLER ---
+# --- 11. MAIN APP CONTROLLER ---
 def main():
     if not st.session_state['authenticated']:
         login_page()
