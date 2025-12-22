@@ -8,6 +8,14 @@ import base64
 from datetime import datetime
 import yfinance as yf
 
+# --- CONSTANTS ---
+MAX_KD_PRE_TAX = 0.20
+MIN_KD_PRE_TAX = 0.01
+DEFAULT_KD_PRE_TAX = 0.08
+TERMINAL_VALUE_WARNING_THRESHOLD = 70.0
+LEVERAGE_WARNING_THRESHOLD = 3.0
+TG_BUFFER = 0.002 # 0.2% buffer for WACC > TG
+
 # --- 1. CONFIGURATION ---
 st.set_page_config(
     page_title="IFAVP | Institutional Analytics", 
@@ -16,13 +24,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. PREMIUM CORPORATE CSS (Black Text Enforcement) ---
+# --- 2. PREMIUM CORPORATE CSS (Strict Black Text Enforcement) ---
 st.markdown("""
 <style>
-    /* Global Typography */
+    /* Global Typography - Enforce Black */
     html, body, [class*="css"] {
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        color: #000000; /* Pure Black */
+        color: #000000 !important; 
     }
     
     /* Main Background */
@@ -60,12 +68,12 @@ st.markdown("""
     .metric-val {
         font-size: 28px;
         font-weight: 700;
-        color: #000000; /* Pure Black */
+        color: #000000 !important;
         margin: 5px 0;
     }
     .metric-lbl {
         font-size: 13px;
-        color: #000000; /* Pure Black */
+        color: #000000 !important;
         text-transform: uppercase;
         letter-spacing: 1px;
         font-weight: 700;
@@ -92,17 +100,14 @@ st.markdown("""
         margin: 50px auto;
         border-top: 5px solid #2c3e50;
     }
-    .login-container h2 {
-        color: #000000 !important;
-    }
-    .login-container p {
+    .login-container h2, .login-container p, .login-container div {
         color: #000000 !important;
     }
     
     /* Tables */
     thead tr th {
         background-color: #ecf0f1 !important;
-        color: #000000 !important; /* Pure Black */
+        color: #000000 !important;
         font-weight: 800 !important;
         border-bottom: 2px solid #bdc3c7 !important;
     }
@@ -111,6 +116,7 @@ st.markdown("""
     }
     tbody tr td {
         color: #000000 !important;
+        font-weight: 500;
     }
     
     /* Live Data Badge */
@@ -118,7 +124,7 @@ st.markdown("""
         display: inline-block;
         padding: 6px 12px;
         background-color: #e8f5e9;
-        color: #2e7d32;
+        color: #2e7d32 !important;
         border-radius: 20px;
         font-size: 12px;
         font-weight: 700;
@@ -129,7 +135,7 @@ st.markdown("""
     
     /* Headers */
     h1, h2, h3, h4 {
-        color: #000000; /* Pure Black */
+        color: #000000 !important;
         font-weight: 800;
         letter-spacing: -0.5px;
     }
@@ -137,7 +143,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 3. DATA ENGINE ---
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_data(file):
     try:
         xl = pd.ExcelFile(file)
@@ -177,6 +183,7 @@ def process_data(df):
     df['NOPAT'] = df['EBIT'] * (1 - df['Tax_Rate'])
     
     # Exact FCFF Formula: NOPAT + D&A - CapEx - Change in Working Capital
+    # Convention: Change_in_WC is (Current Year WC - Previous Year WC). Positive means cash outflow.
     df['FCFF'] = df['NOPAT'] + df['Depreciation'] - df['CapEx'] - df['Change_in_WC']
     
     # Financial Ratios
@@ -210,7 +217,8 @@ def calculate_wacc_dynamic(row):
     
     if debt > 0:
         kd_pre_tax = interest / debt
-        if kd_pre_tax > 0.20 or kd_pre_tax < 0.01: kd_pre_tax = 0.08 
+        if kd_pre_tax > MAX_KD_PRE_TAX or kd_pre_tax < MIN_KD_PRE_TAX: 
+            kd_pre_tax = DEFAULT_KD_PRE_TAX 
     else:
         kd_pre_tax = 0.0
         
@@ -226,19 +234,19 @@ def calculate_wacc_dynamic(row):
     wacc = (we * ke) + (wd * kd)
     return wacc, ke, kd
 
-def project_financials(latest, wacc, years=10):
+def project_financials(latest, wacc, growth_rate, tg, years=10):
     """
     Projects financials 10 years out (standard for quality FMCG).
-    Uses 'Projected_Growth' from Excel for explicit forecast period.
+    Uses 'Projected_Growth' passed as argument.
     """
     rev_base = latest['Revenue']
-    growth_rate = latest['Projected_Growth']
-    tg = latest['Terminal_Growth']
     tax_rate = latest['Tax_Rate']
     
     # Ratios as % of Revenue
-    ebit_margin = latest['EBIT'] / rev_base if rev_base > 0 else 0
+    # Assumption: Constant margins going forward (no operating leverage modeled)
+    constant_ebit_margin = latest['EBIT'] / rev_base if rev_base > 0 else 0
     dep_pct = latest['Depreciation'] / rev_base if rev_base > 0 else 0
+    # Assumption: Linear reinvestment rates
     capex_pct = latest['CapEx'] / rev_base if rev_base > 0 else 0
     wc_pct = latest['Change_in_WC'] / rev_base if rev_base > 0 else 0
     
@@ -250,7 +258,9 @@ def project_financials(latest, wacc, years=10):
     for i in range(1, years + 1):
         # Linearly fade growth after year 5 towards terminal growth
         if i > 5:
-            current_growth = current_growth - ((growth_rate - tg) / 5)
+            # Bug Fix: Ensure fade doesn't increase growth if growth_rate < tg
+            fade = max(growth_rate - tg, 0) / 5
+            current_growth = current_growth - fade
             
         # 1. Grow Revenue
         if i == 1:
@@ -259,7 +269,7 @@ def project_financials(latest, wacc, years=10):
             p_rev = projections[-1]['Revenue'] * (1 + current_growth)
         
         # 2. Apply Margins
-        p_ebit = p_rev * ebit_margin
+        p_ebit = p_rev * constant_ebit_margin
         p_nopat = p_ebit * (1 - tax_rate)
         p_dep = p_rev * dep_pct
         p_capex = p_rev * capex_pct
@@ -289,12 +299,16 @@ def project_financials(latest, wacc, years=10):
         
     # Terminal Value (Gordon Growth Method)
     last_fcff = future_fcff[-1]
+    
+    # Bug Fix: Ensure WACC > Terminal Growth
     safe_tg = min(tg, latest['Risk_Free_Rate'])
+    if wacc <= safe_tg + TG_BUFFER:
+        safe_tg = wacc - TG_BUFFER
     
     tv = (last_fcff * (1 + safe_tg)) / (wacc - safe_tg)
     pv_tv = tv / ((1 + wacc) ** years)
     
-    return pd.DataFrame(projections), pv_tv
+    return pd.DataFrame(projections), pv_tv, tv
 
 def calculate_valuation(latest, proj_df, pv_tv):
     enterprise_val = proj_df['PV FCFF'].sum() + pv_tv
@@ -315,7 +329,7 @@ class PDFReport(FPDF):
         self.set_font('Arial', 'I', 8)
         self.cell(0, 10, f'Page {self.page_no()} | Generated by Intelligent Financial Analytics', 0, 0, 'C')
 
-def generate_pdf(ticker, target, upside, wacc, ke, tg, proj_df, latest_data, peer_df, hist_df):
+def generate_pdf(ticker, target, upside, wacc, ke, kd, tg, proj_df, latest_data, peer_df, hist_df, risks):
     pdf = PDFReport()
     pdf.add_page()
     
@@ -349,58 +363,103 @@ def generate_pdf(ticker, target, upside, wacc, ke, tg, proj_df, latest_data, pee
     pdf.multi_cell(0, 7, summary_text)
     pdf.ln(5)
     
-    # WACC & Assumptions Table
+    # Methodology & Formulas (NEW SECTION)
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Key Model Assumptions (Sourced from Data)", 0, 1)
-    
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_fill_color(230, 230, 230)
-    pdf.cell(60, 10, "Metric", 1, 0, 'L', 1)
-    pdf.cell(40, 10, "Value", 1, 1, 'C', 1)
-    
+    pdf.cell(0, 10, "1. Methodology & Formulas", 0, 1)
     pdf.set_font("Arial", '', 10)
-    assumptions = [
-        ("WACC (Calculated)", f"{wacc*100:.2f}%"),
-        ("Cost of Equity (Ke)", f"{ke*100:.2f}%"),
-        ("Terminal Growth Rate", f"{tg*100:.2f}%"),
+    formula_text = (
+        "We utilize the Weighted Average Cost of Capital (WACC) to discount future Free Cash Flows to Firm (FCFF).\n\n"
+        "FORMULAS USED:\n"
+        "A) WACC = (We * Ke) + (Wd * Kd)  [Where Kd is post-tax cost of debt]\n"
+        "   - We/Wd: Weights of Equity and Debt\n"
+        "   - Ke: Cost of Equity (CAPM) = Risk Free Rate + Beta * (Market Return - Risk Free Rate)\n"
+        "   - Kd: Cost of Debt (Post-Tax) = (Interest Expense / Total Debt) * (1 - Tax Rate)\n\n"
+        "B) FCFF = NOPAT + Depreciation - CapEx - Change in Working Capital\n"
+        "   - NOPAT: Net Operating Profit After Tax = EBIT * (1 - Tax Rate)\n\n"
+        "C) Terminal Value = (Final FCFF * (1 + Terminal Growth)) / (WACC - Terminal Growth)"
+    )
+    pdf.multi_cell(0, 6, formula_text)
+    pdf.ln(5)
+
+    # Detailed WACC Calculation
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "2. WACC Calculation (Inputs from Data)", 0, 1)
+    pdf.set_font("Arial", '', 10)
+    
+    # Create a simple table layout for WACC components
+    wacc_data = [
+        ("Risk Free Rate (Rf)", f"{latest_data['Risk_Free_Rate']*100:.2f}%"),
+        ("Market Return (Rm)", f"{latest_data['Market_Return']*100:.2f}%"),
         ("Beta", f"{latest_data['Beta']:.2f}"),
-        ("Risk Free Rate", f"{latest_data['Risk_Free_Rate']*100:.2f}%"),
-        ("Market Return", f"{latest_data['Market_Return']*100:.2f}%")
+        ("Cost of Equity (Ke)", f"{ke*100:.2f}%"),
+        ("Cost of Debt (Pre-tax)", f"{kd/(1-latest_data['Tax_Rate'])*100:.2f}%"),
+        ("Tax Rate", f"{latest_data['Tax_Rate']*100:.1f}%"),
+        ("Final WACC", f"{wacc*100:.2f}%")
     ]
     
-    for metric, val in assumptions:
-        pdf.cell(60, 10, metric, 1, 0, 'L')
-        pdf.cell(40, 10, val, 1, 1, 'C')
+    pdf.set_fill_color(240, 240, 240)
+    for i, (metric, val) in enumerate(wacc_data):
+        fill = 1 if i % 2 == 0 else 0
+        pdf.cell(80, 8, metric, 1, 0, 'L', fill)
+        pdf.cell(40, 8, val, 1, 1, 'C', fill)
     pdf.ln(5)
     
-    # Comparable Company Analysis Table
+    # 5-Year Projections Table (Explicit Request)
+    pdf.add_page()
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Comparable Company Analysis (CCA)", 0, 1)
+    pdf.cell(0, 10, "3. 5-Year Cash Flow Projections (Forecast)", 0, 1)
     
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_fill_color(230, 230, 230)
-    # Header
-    cols = ["Ticker", "P/E", "EV/EBITDA", "ROE (%)", "Revenue (Cr)"]
-    widths = [40, 30, 30, 30, 40]
+    pdf.set_font("Arial", 'B', 9)
+    pdf.set_fill_color(50, 50, 50)
+    pdf.set_text_color(255, 255, 255)
+    headers = ["Year", "Revenue", "EBIT", "NOPAT", "CapEx", "FCFF", "PV of FCFF"]
+    col_widths = [15, 30, 30, 30, 30, 30, 30]
+    
+    for i, h in enumerate(headers):
+        pdf.cell(col_widths[i], 10, h, 1, 0, 'C', 1)
+    pdf.ln()
+    
+    pdf.set_font("Arial", '', 9)
+    pdf.set_text_color(0, 0, 0)
+    
+    for index, row in proj_df.head(5).iterrows():
+        pdf.cell(col_widths[0], 10, str(row['Year']), 1, 0, 'C')
+        pdf.cell(col_widths[1], 10, f"{row['Revenue']:,.0f}", 1, 0, 'R')
+        pdf.cell(col_widths[2], 10, f"{row['EBIT']:,.0f}", 1, 0, 'R')
+        pdf.cell(col_widths[3], 10, f"{row['NOPAT']:,.0f}", 1, 0, 'R')
+        pdf.cell(col_widths[4], 10, f"{row['CapEx']:,.0f}", 1, 0, 'R')
+        pdf.cell(col_widths[5], 10, f"{row['FCFF']:,.0f}", 1, 0, 'R')
+        pdf.cell(col_widths[6], 10, f"{row['PV FCFF']:,.0f}", 1, 1, 'R')
+    pdf.ln(5)
+    
+    # Comparable Analysis
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 10, "4. Comparable Company Analysis (CCA)", 0, 1)
+    
+    pdf.set_font("Arial", 'B', 9)
+    pdf.set_fill_color(50, 50, 50)
+    pdf.set_text_color(255, 255, 255)
+    cols = ["Ticker", "P/E Ratio", "EV/EBITDA", "ROE (%)", "Revenue (Cr)"]
+    widths = [30, 30, 35, 30, 40]
+    
     for i, c in enumerate(cols):
         pdf.cell(widths[i], 10, c, 1, 0, 'C', 1)
     pdf.ln()
     
-    # Rows
-    pdf.set_font("Arial", '', 10)
+    pdf.set_font("Arial", '', 9)
+    pdf.set_text_color(0, 0, 0)
     for index, row in peer_df.iterrows():
         pdf.cell(widths[0], 10, str(index), 1, 0, 'C')
         pdf.cell(widths[1], 10, f"{row['P/E Ratio']:.1f}x", 1, 0, 'C')
         pdf.cell(widths[2], 10, f"{row['EV/EBITDA']:.1f}x", 1, 0, 'C')
         pdf.cell(widths[3], 10, f"{row['ROE (%)']:.1f}%", 1, 0, 'C')
         pdf.cell(widths[4], 10, f"{row['Revenue (Cr)']:,.0f}", 1, 1, 'C')
-    
     pdf.ln(5)
     
-    # Historical Data Table (NEW SECTION)
+    # Historical Data Table
     pdf.add_page()
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Historical Financial Data (Uploaded)", 0, 1)
+    pdf.cell(0, 10, "5. Historical Financial Data (Uploaded)", 0, 1)
     
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(230, 230, 230)
@@ -424,26 +483,13 @@ def generate_pdf(ticker, target, upside, wacc, ke, tg, proj_df, latest_data, pee
         pdf.cell(hist_widths[3], 10, f"{row['Net_Income']:,.0f}", 1, 0, 'R')
         pdf.cell(hist_widths[4], 10, f"{row['CapEx']:,.0f}", 1, 1, 'R')
     pdf.ln(5)
-
-    # Projections Table
+    
+    # Risks Section (New)
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Cash Flow Projections (Next 5 Years)", 0, 1)
-    
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_fill_color(230, 230, 230)
-    pdf.cell(20, 10, "Year", 1, 0, 'C', 1)
-    pdf.cell(45, 10, "Revenue", 1, 0, 'C', 1)
-    pdf.cell(45, 10, "EBIT", 1, 0, 'C', 1)
-    pdf.cell(45, 10, "FCFF", 1, 0, 'C', 1)
-    pdf.cell(35, 10, "PV of FCFF", 1, 1, 'C', 1)
-    
+    pdf.cell(0, 10, "6. Key Risks & Assumptions", 0, 1)
     pdf.set_font("Arial", '', 10)
-    for index, row in proj_df.head(5).iterrows():
-        pdf.cell(20, 10, f"{row['Year']}", 1, 0, 'C')
-        pdf.cell(45, 10, f"{row['Revenue']:,.0f}", 1, 0, 'R')
-        pdf.cell(45, 10, f"{row['EBIT']:,.0f}", 1, 0, 'R')
-        pdf.cell(45, 10, f"{row['FCFF']:,.0f}", 1, 0, 'R')
-        pdf.cell(35, 10, f"{row['PV FCFF']:,.0f}", 1, 1, 'R')
+    for r in risks:
+        pdf.multi_cell(0, 6, f"- {r}")
         
     return pdf.output(dest='S').encode('latin-1')
 
@@ -456,9 +502,9 @@ def main():
         with c2:
             st.markdown("""
             <div class="login-container">
-                <h2 style="color:#000000; font-weight:700;">IFAVP Portal</h2>
-                <p style="color:#000000; margin-bottom:20px;">Institutional Financial Analytics System</p>
-                <div style="text-align:left; margin-bottom:10px; color:#000000; font-weight:600;">Secure Login</div>
+                <h2 style="font-size:24px; margin-bottom:10px;">IFAVP Portal</h2>
+                <p style="color:#333; font-size:14px; margin-bottom:20px;">Institutional Financial Analytics System</p>
+                <div style="text-align:left; font-weight:bold; margin-bottom:5px;">Secure Login</div>
             """, unsafe_allow_html=True)
             
             user = st.text_input("Username", placeholder="admin")
@@ -476,7 +522,7 @@ def main():
         return
 
     # Sidebar Layout
-    st.sidebar.markdown("""<div style='text-align: center; padding: 20px 0;'><h2 style='color: white; margin:0; letter-spacing:1px;'>IFAVP</h2><p style='color: #bdc3c7; font-size: 11px; margin-top:5px;'>ANALYTICS SUITE v4.0</p></div>""", unsafe_allow_html=True)
+    st.sidebar.markdown("""<div style='text-align: center; padding: 20px 0;'><h2 style='color: white; margin:0; letter-spacing:1px;'>IFAVP</h2><p style='color: #bdc3c7; font-size: 11px; margin-top:5px;'>ANALYTICS SUITE v5.0</p></div>""", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Analyst:** {st.session_state['user']}")
     if st.sidebar.button("Log Out"):
         st.session_state['authenticated'] = False
@@ -495,13 +541,36 @@ def main():
         st.sidebar.markdown("### 🏢 Entity Focus")
         ticker = st.sidebar.selectbox("Select Company", sheets)
         
+        # Explicit Assumptions Panel
+        st.sidebar.markdown("### ⚙️ Assumptions Overrides")
+        with st.sidebar.expander("Modify Key Inputs", expanded=False):
+            # Display current base values for context
+            base_rev_growth = float(raw_data[ticker].iloc[-1]['Projected_Growth'])
+            base_term_growth = float(raw_data[ticker].iloc[-1]['Terminal_Growth'])
+            
+            user_proj_growth = st.slider(f"Revenue Growth (Base: {base_rev_growth:.1%})", 0.0, 0.20, base_rev_growth, 0.005)
+            user_term_growth = st.slider(f"Terminal Growth (Base: {base_term_growth:.1%})", 0.0, 0.10, base_term_growth, 0.005)
+            user_wacc_adj = st.slider("WACC Adjustment (Base: 0.0%)", -0.02, 0.02, 0.0, 0.001)
+        
         # 1. READ & PROCESS DATA
         df = process_data(raw_data[ticker].copy())
         latest = df.iloc[-1]
         
         # 2. DYNAMIC CALCULATION
-        wacc, ke, kd = calculate_wacc_dynamic(latest)
-        proj_df, pv_tv = project_financials(latest, wacc)
+        base_wacc, ke, kd = calculate_wacc_dynamic(latest)
+        final_wacc = base_wacc + user_wacc_adj
+        
+        # Scenario Analysis
+        scenarios = {
+            "Base Case": (user_proj_growth, user_term_growth),
+            "Bull Case": (user_proj_growth * 1.2, user_term_growth * 1.1),
+            "Bear Case": (user_proj_growth * 0.8, user_term_growth * 0.9)
+        }
+        selected_scenario = st.sidebar.selectbox("Select Scenario", list(scenarios.keys()))
+        s_pg, s_tg = scenarios[selected_scenario]
+        
+        # Calculate 10yr for value, but display 5yr focus
+        proj_df, pv_tv, tv_val = project_financials(latest, final_wacc, s_pg, s_tg, years=10) 
         target_price, equity_val = calculate_valuation(latest, proj_df, pv_tv)
         
         # 3. LIVE MARKET DATA
@@ -514,7 +583,7 @@ def main():
         try:
             stock = yf.Ticker(y_ticker)
             fast_info = stock.fast_info
-            if fast_info.last_price:
+            if fast_info and 'last_price' in fast_info and fast_info.last_price:
                 live_price = fast_info.last_price
                 is_live = True
         except:
@@ -524,7 +593,7 @@ def main():
         
         # --- HEADER SECTION ---
         st.title(f"{ticker} Valuation Analysis")
-        st.markdown(f"**Valuation Date:** {datetime.now().strftime('%d %B %Y')} | **Currency:** INR (Crores)")
+        st.markdown(f"**Valuation Date:** {datetime.now().strftime('%d %B %Y')} | **Currency:** INR (Crores) | **Scenario:** {selected_scenario}")
         
         if is_live:
             st.markdown(f'<div class="live-badge">⚡ Live Market Price Active ({y_ticker})</div>', unsafe_allow_html=True)
@@ -536,34 +605,58 @@ def main():
         # --- KPI CARDS ---
         c1, c2, c3, c4 = st.columns(4)
         c1.markdown(f'<div class="metric-card"><div class="metric-lbl">Target Value (Intrinsic)</div><div class="metric-val">₹ {target_price:,.2f}</div></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-card"><div class="metric-lbl">Current Price</div><div class="metric-val">₹ {live_price:,.2f}</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="metric-card"><div class="metric-lbl">Current Price (Per Share)</div><div class="metric-val">₹ {live_price:,.2f}</div></div>', unsafe_allow_html=True)
         
         up_color = "#27ae60" if upside > 0 else "#c0392b"
         c3.markdown(f'<div class="metric-card" style="border-left: 5px solid {up_color};"><div class="metric-lbl">Implied Upside</div><div class="metric-val" style="color:{up_color}">{upside:+.2f}%</div></div>', unsafe_allow_html=True)
         
-        c4.markdown(f'<div class="metric-card"><div class="metric-lbl">WACC (Calculated)</div><div class="metric-val">{wacc:.1%}</div></div>', unsafe_allow_html=True)
+        c4.markdown(f'<div class="metric-card"><div class="metric-lbl">WACC (Applied)</div><div class="metric-val">{final_wacc:.1%}</div></div>', unsafe_allow_html=True)
+        
+        # Additional Insights Row
+        if latest['Net_Income'] > (0.05 * latest['Revenue']): # Threshold for valid P/E
+             implied_pe = target_price / (latest['Net_Income']/latest['Shares_Outstanding'])
+        else:
+             implied_pe = 0
+             
+        terminal_dependency = (pv_tv / (proj_df['PV FCFF'].sum() + pv_tv)) * 100
+        
+        st.markdown(f"""
+        <div style="display:flex; justify-content:space-around; margin-top:10px; background-color:#e0f2f1; padding:10px; border-radius:5px;">
+            <div><strong>Terminal Value Share of EV:</strong> {terminal_dependency:.1f}% {'⚠️' if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD else '✅'}</div>
+            <div><strong>Implied P/E @ Target:</strong> {implied_pe:.1f}x</div>
+        </div>
+        """, unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
         # --- TABS ---
-        t1, t2, t3, t4, t5 = st.tabs(["📊 Projections", "🧮 WACC Build", "📈 Trends", "👥 Comparable Analysis", "📄 Report"])
+        t1, t2, t3, t4, t5 = st.tabs(["📊 Projections (5Y)", "🧮 WACC Build", "📈 Sensitivity", "👥 Comparable Analysis", "📄 Report"])
         
         # Tab 1: Projections
         with t1:
-            st.markdown("### Future Cash Flow Projections (10 Years)")
+            st.markdown("### Future Cash Flow Projections (Next 5 Years)")
             st.markdown('<div class="content-card">', unsafe_allow_html=True)
-            st.dataframe(proj_df.style.format("{:,.0f}"), use_container_width=True)
+            # SHOW ONLY FIRST 5 YEARS IN TABLE FOR CLEANLINESS
+            # Highlight FCFF and PV FCFF columns using style
+            st.dataframe(
+                proj_df.head(5).style.format("{:,.0f}")
+                .background_gradient(subset=['FCFF', 'PV FCFF'], cmap='Greens'), 
+                use_container_width=True
+            )
             st.markdown('</div>', unsafe_allow_html=True)
             
             st.markdown('<div class="content-card">', unsafe_allow_html=True)
             fig = go.Figure(go.Waterfall(
                 measure=["relative", "relative", "total"],
-                x=["PV Cash Flows (1-10)", "PV Terminal Value", "Enterprise Value"],
+                x=["PV Cash Flows (Total)", "PV Terminal Value", "Enterprise Value"],
                 y=[proj_df['PV FCFF'].sum(), pv_tv, 0],
                 connector={"line":{"color":"#000000"}}
             ))
             fig.update_layout(title="Enterprise Value Composition", height=350, plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
             st.plotly_chart(fig, use_container_width=True)
+            
+            if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD:
+                st.warning(f"⚠️ High Terminal Value Dependency: {terminal_dependency:.1f}% of Value comes from perpetuity.")
             st.markdown('</div>', unsafe_allow_html=True)
             
         # Tab 2: WACC Build
@@ -586,26 +679,45 @@ def main():
                 st.markdown("**Cost of Debt (Kd) & WACC**")
                 st.dataframe(pd.DataFrame({
                     "Component": ["Interest Expense", "Total Debt", "Tax Rate", "Post-Tax Kd", "Final WACC"],
-                    "Value": [f"{latest['Interest_Expense']:,.0f}", f"{latest['Total_Debt']:,.0f}", f"{latest['Tax_Rate']:.1%}", f"{kd:.2%}", f"{wacc:.2%}"]
+                    "Value": [f"{latest['Interest_Expense']:,.0f}", f"{latest['Total_Debt']:,.0f}", f"{latest['Tax_Rate']:.1%}", f"{kd:.2%}", f"{base_wacc:.2%}"]
                 }), hide_index=True, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-        # Tab 3: Historical Trends
+        # Tab 3: Sensitivity Analysis
         with t3:
-            c_trend1, c_trend2 = st.columns(2)
-            with c_trend1:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_rev = px.bar(df, x='Year', y='Revenue', title="Revenue Growth", color_discrete_sequence=['#3498db'])
-                fig_rev.update_layout(plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
-                st.plotly_chart(fig_rev, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-            with c_trend2:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_prof = px.line(df, x='Year', y=['EBITDA', 'Net_Income'], title="Profitability", markers=True)
-                fig_prof.update_layout(plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
-                st.plotly_chart(fig_prof, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+            st.subheader("Sensitivity Analysis")
+            
+            # Heatmap Data
+            wacc_range = np.linspace(final_wacc - 0.01, final_wacc + 0.01, 5)
+            tg_range = np.linspace(s_tg - 0.005, s_tg + 0.005, 5)
+            
+            z_values = []
+            for w in wacc_range:
+                row_z = []
+                for t in tg_range:
+                    p_df, p_tv, _ = project_financials(latest, w, s_pg, t, years=10)
+                    val, _ = calculate_valuation(latest, p_df, p_tv)
+                    row_z.append(val)
+                z_values.append(row_z)
                 
+            fig_heat = go.Figure(data=go.Heatmap(
+                z=z_values,
+                x=[f"{t:.1%}" for t in tg_range],
+                y=[f"{w:.1%}" for w in wacc_range],
+                colorscale='RdBu',
+                texttemplate="₹%{z:.0f}"
+            ))
+            # Reverse Y-axis so higher WACC (lower value) is at bottom/top consistent with finance intuition
+            fig_heat.update_layout(
+                title="Target Price Sensitivity (WACC vs Terminal Growth)", 
+                xaxis_title="Terminal Growth", 
+                yaxis_title="WACC",
+                yaxis=dict(autorange="reversed") 
+            )
+            st.plotly_chart(fig_heat, use_container_width=True)
+            
+            st.info(f"Implied P/E at Target Price: {implied_pe:.1f}x")
+
         # Tab 4: Peer Comparison
         with t4:
             st.subheader("Comparable Company Analysis (CCA)")
@@ -637,7 +749,6 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
             
             # Visual Comparison Charts
-            st.markdown("### Valuation Multiples Comparison")
             col_v1, col_v2 = st.columns(2)
             
             with col_v1:
@@ -653,31 +764,25 @@ def main():
                 fig_ev.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
                 st.plotly_chart(fig_ev, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
-            
-            st.markdown("### Profitability & Efficiency Comparison")
-            col_p1, col_p2 = st.columns(2)
-            
-            with col_p1:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_roe = px.bar(peer_df, x=peer_df.index, y='ROE (%)', title="Return on Equity (ROE)", color=peer_df.index, text_auto='.1f')
-                fig_roe.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
-                st.plotly_chart(fig_roe, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-            with col_p2:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_marg = go.Figure()
-                fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['EBITDA Margin (%)'], name='EBITDA Margin'))
-                fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['Net Profit Margin (%)'], name='Net Margin'))
-                fig_marg.update_layout(title="Operating Margins", barmode='group', plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
-                st.plotly_chart(fig_marg, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
                 
         # Tab 5: Report
         with t5:
             st.markdown("### Generate Investment Note")
+            st.write("All values are in INR Crores unless stated otherwise. Valuation is scenario-dependent.")
+            
+            # Risk Assessment
+            risks = []
+            # Note: Modeling risk - Assumptions of constant margin & linear reinvestment
+            risks.append("Modeling: Assumes constant EBIT margins and linear CapEx/WC reinvestment rates.")
+            if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD: 
+                risks.append(f"Valuation: High Terminal Value Dependency ({terminal_dependency:.1f}%)")
+            if s_tg > latest['Risk_Free_Rate']: 
+                risks.append("Valuation: Terminal Growth exceeds Risk Free Rate (Aggressive assumption)")
+            if latest['EBITDA'] > 0 and (latest['Total_Debt'] / latest['EBITDA'] > LEVERAGE_WARNING_THRESHOLD): 
+                risks.append("Financial: High Leverage (Net Debt/EBITDA > 3x)")
+            
             if st.button("Download PDF Report"):
-                pdf_bytes = generate_pdf(ticker, target_price, upside, wacc, ke, latest['Terminal_Growth'], proj_df, latest, peer_df, df)
+                pdf_bytes = generate_pdf(ticker, target_price, upside, final_wacc, ke, kd, s_tg, proj_df, latest, peer_df, df, risks)
                 b64 = base64.b64encode(pdf_bytes).decode()
                 href = f'<a href="data:application/pdf;base64,{b64}" download="{ticker}_Valuation_Report.pdf" style="background-color:#2c3e50; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Download PDF File</a>'
                 st.markdown(href, unsafe_allow_html=True)
