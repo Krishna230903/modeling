@@ -71,16 +71,16 @@ st.markdown("""
     .metric-val {
         font-size: 28px;
         font-weight: 700;
-        color: #000000 !important; /* STRICT BLACK */
+        color: #000000 !important;
         margin: 5px 0;
-        font-family: 'Roboto Mono', monospace; 
+        font-family: 'Roboto Mono', monospace; /* Number font */
     }
     .metric-lbl {
         font-size: 12px;
-        color: #000000 !important; /* STRICT BLACK */
+        color: #555555 !important;
         text-transform: uppercase;
         letter-spacing: 1px;
-        font-weight: 700;
+        font-weight: 600;
     }
     
     /* Custom Content Cards */
@@ -108,21 +108,13 @@ st.markdown("""
         font-family: 'Playfair Display', serif;
         font-size: 32px;
         font-weight: 700;
-        color: #000000 !important; /* STRICT BLACK */
+        color: #2c3e50 !important;
         margin-bottom: 10px;
     }
     .login-sub {
-        color: #000000 !important; /* STRICT BLACK */
+        color: #7f8c8d !important;
         font-size: 14px;
         margin-bottom: 30px;
-        font-weight: 500;
-    }
-    .login-label {
-        text-align: left;
-        font-weight: 700;
-        font-size: 14px;
-        margin-bottom: 5px;
-        color: #000000 !important; /* STRICT BLACK */
     }
     
     /* Tables */
@@ -138,8 +130,8 @@ st.markdown("""
     }
     tbody tr td {
         color: #000000 !important;
-        font-weight: 600;
-        font-family: 'Roboto Mono', monospace; 
+        font-weight: 500;
+        font-family: 'Roboto Mono', monospace; /* Numbers in tables */
         font-size: 14px;
     }
     
@@ -162,7 +154,7 @@ st.markdown("""
         color: #000000 !important;
         font-weight: 800;
         letter-spacing: -0.5px;
-        font-family: 'Playfair Display', serif; 
+        font-family: 'Playfair Display', serif; /* Distinguished headers */
     }
     
     /* Buttons */
@@ -177,12 +169,6 @@ st.markdown("""
     .stButton button:hover {
         background-color: #34495e;
         color: white;
-    }
-    
-    /* Input Labels */
-    div[data-testid="stMarkdownContainer"] p {
-        color: #000000 !important;
-        font-weight: 500;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -549,7 +535,7 @@ def main():
             <div class="login-container">
                 <div class="login-header">SENTINEL</div>
                 <div class="login-sub">Institutional Financial Intelligence</div>
-                <div class="login-label">Secure Access</div>
+                <div style="text-align:left; font-weight:600; font-size:14px; margin-bottom:5px; color:#2c3e50;">Secure Access</div>
             """, unsafe_allow_html=True)
             
             user = st.text_input("Username", placeholder="admin")
@@ -622,16 +608,34 @@ def main():
         live_price = latest['Avg_Price']
         is_live = False
         y_ticker = None
-        TICKER_MAP = {'HUL': 'HINDUNILVR.NS', 'ITC': 'ITC.NS', 'COLPAL': 'COLPAL.NS', 'COLGATE': 'COLPAL.NS'}
+        # Default mapping, can be extended
+        TICKER_MAP = {
+            'HUL': 'HINDUNILVR.NS', 
+            'ITC': 'ITC.NS', 
+            'COLPAL': 'COLPAL.NS', 
+            'COLGATE': 'COLPAL.NS',
+            'NESTLE': 'NESTLEIND.NS',
+            'BRITANNIA': 'BRITANNIA.NS'
+        }
+        
+        # Try mapped ticker, then default to Ticker.NS
         y_ticker = TICKER_MAP.get(ticker.upper(), f"{ticker}.NS")
         
         try:
             stock = yf.Ticker(y_ticker)
-            fast_info = stock.fast_info
-            if fast_info and 'last_price' in fast_info and fast_info.last_price:
-                live_price = fast_info.last_price
+            # Try history first as it's often more reliable than fast_info
+            hist = stock.history(period="1d")
+            if not hist.empty:
+                live_price = hist['Close'].iloc[-1]
                 is_live = True
-        except:
+            else:
+                # Fallback to fast_info
+                fast_info = stock.fast_info
+                if fast_info and 'last_price' in fast_info and fast_info.last_price:
+                    live_price = fast_info.last_price
+                    is_live = True
+        except Exception as e:
+            # Silent fail to book price if live fetch fails
             pass
             
         upside = (target_price - live_price)/live_price * 100
@@ -675,7 +679,7 @@ def main():
         st.markdown("<br>", unsafe_allow_html=True)
         
         # --- TABS ---
-        t1, t2, t3, t4, t5 = st.tabs(["📊 Projections (5Y)", "🧮 WACC Build", "📈 Sensitivity", "👥 Comparable Analysis", "📄 Report"])
+        t1, t2, t3, t4, t5 = st.tabs(["📊 Projections (5Y)", "🧮 WACC Build", "📈 Trends", "👥 Comparable Analysis", "📄 Report"])
         
         # Tab 1: Projections
         with t1:
@@ -691,6 +695,16 @@ def main():
             st.markdown('</div>', unsafe_allow_html=True)
             
             st.markdown('<div class="content-card">', unsafe_allow_html=True)
+            
+            # 1. Multi-line Projection Chart
+            fig_proj = go.Figure()
+            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['Revenue'], name='Revenue', line=dict(color='#2c3e50', width=3)))
+            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['EBIT'], name='EBIT', line=dict(color='#2980b9', width=2)))
+            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['FCFF'], name='FCFF', line=dict(color='#27ae60', width=2, dash='dot')))
+            fig_proj.update_layout(title="5-Year Financial Forecast", plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
+            st.plotly_chart(fig_proj, use_container_width=True)
+            
+            # 2. Valuation Bridge
             fig = go.Figure(go.Waterfall(
                 measure=["relative", "relative", "total"],
                 x=["PV Cash Flows (Total)", "PV Terminal Value", "Enterprise Value"],
@@ -728,42 +742,22 @@ def main():
                 }), hide_index=True, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-        # Tab 3: Sensitivity Analysis
+        # Tab 3: Historical Trends
         with t3:
-            st.subheader("Sensitivity Analysis")
-            
-            # Heatmap Data
-            wacc_range = np.linspace(final_wacc - 0.01, final_wacc + 0.01, 5)
-            tg_range = np.linspace(s_tg - 0.005, s_tg + 0.005, 5)
-            
-            z_values = []
-            for w in wacc_range:
-                row_z = []
-                for t in tg_range:
-                    p_df, p_tv, _ = project_financials(latest, w, s_pg, t, years=10)
-                    val, _ = calculate_valuation(latest, p_df, p_tv)
-                    row_z.append(val)
-                z_values.append(row_z)
+            c_trend1, c_trend2 = st.columns(2)
+            with c_trend1:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                fig_rev = px.bar(df, x='Year', y='Revenue', title="Revenue Growth", color_discrete_sequence=['#3498db'])
+                fig_rev.update_layout(plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
+                st.plotly_chart(fig_rev, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            with c_trend2:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                fig_prof = px.line(df, x='Year', y=['EBITDA', 'Net_Income'], title="Profitability", markers=True)
+                fig_prof.update_layout(plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
+                st.plotly_chart(fig_prof, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
                 
-            fig_heat = go.Figure(data=go.Heatmap(
-                z=z_values,
-                x=[f"{t:.1%}" for t in tg_range],
-                y=[f"{w:.1%}" for w in wacc_range],
-                colorscale='RdBu',
-                texttemplate="₹%{z:.0f}"
-            ))
-            # Reverse Y-axis so higher WACC (lower value) is at bottom/top consistent with finance intuition
-            fig_heat.update_layout(
-                title="Target Price Sensitivity (WACC vs Terminal Growth)", 
-                xaxis_title="Terminal Growth", 
-                yaxis_title="WACC",
-                yaxis=dict(autorange="reversed"),
-                font={'color': '#000000'}
-            )
-            st.plotly_chart(fig_heat, use_container_width=True)
-            
-            st.info(f"Implied P/E at Target Price: {implied_pe:.1f}x")
-
         # Tab 4: Peer Comparison
         with t4:
             st.subheader("Comparable Company Analysis (CCA)")
@@ -799,15 +793,20 @@ def main():
             
             with col_v1:
                 st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_pe = px.bar(peer_df, x=peer_df.index, y='P/E Ratio', title="Price to Earnings (P/E)", color=peer_df.index, text_auto='.1f')
-                fig_pe.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
-                st.plotly_chart(fig_pe, use_container_width=True)
+                # Scatter Plot for Valuation vs Profitability
+                fig_scatter = px.scatter(peer_df, x='ROE (%)', y='P/E Ratio', text=peer_df.index, size='Revenue (Cr)', title="P/E vs ROE (Size = Revenue)", color=peer_df.index)
+                fig_scatter.update_traces(textposition='top center')
+                fig_scatter.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
+                st.plotly_chart(fig_scatter, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
             with col_v2:
                 st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_ev = px.bar(peer_df, x=peer_df.index, y='EV/EBITDA', title="EV / EBITDA", color=peer_df.index, text_auto='.1f')
-                fig_ev.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
+                # Grouped Bar for Multiples
+                fig_ev = go.Figure()
+                fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['P/E Ratio'], name='P/E'))
+                fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['EV/EBITDA'], name='EV/EBITDA'))
+                fig_ev.update_layout(title="Valuation Multiples", barmode='group', plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
                 st.plotly_chart(fig_ev, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
             
