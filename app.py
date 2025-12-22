@@ -15,6 +15,7 @@ DEFAULT_KD_PRE_TAX = 0.08
 TERMINAL_VALUE_WARNING_THRESHOLD = 70.0
 LEVERAGE_WARNING_THRESHOLD = 3.0
 TG_BUFFER = 0.002 # 0.2% buffer for WACC > TG
+MACRO_GROWTH_CEILING = 0.05 # 5% hard ceiling for terminal growth
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -294,9 +295,10 @@ def calculate_wacc_dynamic(row):
     
     wacc = (we * ke) + (wd * kd)
     
-    # Safety: If WACC is suspiciously low (e.g. < 1%), default to 10%
-    if wacc < 0.01:
-        wacc = 0.10
+    # Safety: Hard Floor for WACC to prevent mathematical explosions or invalid economics
+    # Minimum 3% WACC
+    if wacc < 0.03:
+        wacc = 0.03
         
     return wacc, ke, kd
 
@@ -369,8 +371,14 @@ def project_financials(latest, wacc, growth_rate, tg, years=10):
     # Terminal Value (Gordon Growth Method)
     last_fcff = future_fcff[-1]
     
-    # Bug Fix: Ensure WACC > Terminal Growth
-    safe_tg = min(tg, latest['Risk_Free_Rate']) if latest['Risk_Free_Rate'] > 0 else tg
+    # --- RIGOROUS ECONOMICS SAFETY CHECK ---
+    # 1. Cap TG at Risk Free Rate (Standard Practice)
+    # 2. Cap TG at 5% (Macro Ceiling)
+    # 3. Cap TG at WACC - Buffer (Mathematical Necessity)
+    
+    rf = latest['Risk_Free_Rate'] if latest['Risk_Free_Rate'] > 0 else 0.05
+    safe_tg = min(tg, rf, MACRO_GROWTH_CEILING)
+    
     if wacc <= safe_tg + TG_BUFFER:
         safe_tg = wacc - TG_BUFFER
     
@@ -382,7 +390,12 @@ def project_financials(latest, wacc, growth_rate, tg, years=10):
 def calculate_valuation(latest, proj_df, pv_tv):
     enterprise_val = proj_df['PV FCFF'].sum() + pv_tv
     equity_val = enterprise_val - latest['Total_Debt'] + latest['Cash_Equivalents']
+    
+    # Valuation Safety: Equity Value cannot effectively be negative for target price context (limited liability)
+    # Though mathematically DCF can be negative, standard output often floors at 0 or flags it.
     target_price = equity_val / latest['Shares_Outstanding']
+    target_price = max(target_price, 0)
+    
     return target_price, equity_val
 
 # Helper to enforce black text on charts
@@ -646,10 +659,26 @@ def main():
         df = process_data(raw_data[ticker].copy())
         latest = df.iloc[-1]
         
+        # Define Risks List Early for accumulation
+        risks = [
+            "Macroeconomic headwinds affecting consumer discretionary spending.",
+            "Fluctuations in raw material prices (commodities) impacting margins.",
+            "Intensifying competitive landscape from new entrants and D2C brands.",
+            "Regulatory changes in taxation or environmental standards.",
+            "Execution risk in new product launches or market expansion.",
+            "Linear fade approximation used for growth rates converging to terminal growth."
+        ]
+        
         # 2. DYNAMIC CALCULATION
         base_wacc, ke, kd = calculate_wacc_dynamic(latest)
-        final_wacc = base_wacc + user_wacc_adj
         
+        # WACC Guardrail: Prevent negative or dangerously low WACC
+        # Ensuring Final WACC is at least 3% strictly
+        final_wacc = max(base_wacc + user_wacc_adj, 0.03)
+        
+        if final_wacc != (base_wacc + user_wacc_adj):
+            st.toast("⚠️ WACC adjusted to minimum floor of 3.0%", icon="🛡️")
+
         # Display warning if WACC was defaulted
         if latest['Risk_Free_Rate'] == 0:
             st.toast("⚠️ Warning: Risk Free Rate is 0 in data. Used default WACC.", icon="⚠️")
@@ -666,6 +695,11 @@ def main():
         # Calculate 10yr for value, but display 5yr focus
         proj_df, pv_tv, tv_val = project_financials(latest, final_wacc, s_pg, s_tg, years=10) 
         target_price, equity_val = calculate_valuation(latest, proj_df, pv_tv)
+        
+        # Risk Check: Negative Equity Value
+        if equity_val < 0:
+            risks.append("⚠️ HIGH RISK: Implied Equity Value is negative due to high debt load relative to cash flows.")
+            st.error("Warning: High leverage is eroding equity value.")
         
         # 3. LIVE MARKET DATA
         live_price = latest['Avg_Price']
@@ -705,7 +739,7 @@ def main():
         
         # --- HEADER SECTION ---
         st.title(f"{ticker} Valuation Analysis")
-        st.markdown(f"**Valuation Date:** {datetime.now().strftime('%d %B %Y')} | **Currency:** INR (Crores) | **Scenario:** {selected_scenario}")
+        st.markdown(f"**Valuation Date:** {datetime.now().strftime('%d %B %Y')} | **Financials:** INR Crores | **Share Prices:** INR per share | **Scenario:** {selected_scenario}")
         
         if is_live:
             st.markdown(f'<div class="live-badge">⚡ Live Market Price Active ({y_ticker})</div>', unsafe_allow_html=True)
@@ -727,15 +761,17 @@ def main():
         # Additional Insights Row
         if latest['Net_Income'] > (0.05 * latest['Revenue']): # Threshold for valid P/E
              implied_pe = target_price / (latest['Net_Income']/latest['Shares_Outstanding'])
+             pe_display = f"{implied_pe:.1f}x"
         else:
-             implied_pe = 0
+             implied_pe = np.nan
+             pe_display = "N/A (Low Earnings)"
              
         terminal_dependency = (pv_tv / (proj_df['PV FCFF'].sum() + pv_tv)) * 100
         
         st.markdown(f"""
         <div style="display:flex; justify-content:space-around; margin-top:10px; background-color:#e0f2f1; padding:10px; border-radius:5px;">
             <div style="color:black;"><strong>Terminal Value Share of EV:</strong> {terminal_dependency:.1f}% {'⚠️' if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD else '✅'}</div>
-            <div style="color:black;"><strong>Implied P/E @ Target:</strong> {implied_pe:.1f}x</div>
+            <div style="color:black;"><strong>Implied P/E @ Target:</strong> {pe_display}</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -825,9 +861,13 @@ def main():
             for w in wacc_range:
                 row_z = []
                 for t in tg_range:
-                    p_df, p_tv, _ = project_financials(latest, w, s_pg, t, years=10)
-                    val, _ = calculate_valuation(latest, p_df, p_tv)
-                    row_z.append(val)
+                    # Logic Check: WACC must be > TG + Buffer for Math Stability
+                    if w <= t + TG_BUFFER:
+                        row_z.append(np.nan) # Invalid combination
+                    else:
+                        p_df, p_tv, _ = project_financials(latest, w, s_pg, t, years=10)
+                        val, _ = calculate_valuation(latest, p_df, p_tv)
+                        row_z.append(val)
                 z_values.append(row_z)
                 
             fig_heat = go.Figure(data=go.Heatmap(
@@ -847,7 +887,7 @@ def main():
             fig_heat = format_chart(fig_heat)
             st.plotly_chart(fig_heat, use_container_width=True)
             
-            st.info(f"Implied P/E at Target Price: {implied_pe:.1f}x")
+            st.info(f"Implied P/E at Target Price: {pe_display}")
 
         # Tab 4: Peer Comparison
         with t4:
@@ -857,9 +897,19 @@ def main():
             # Aggregate Peer Data
             peers = []
             for t in sheets:
+                # SKIP THE TARGET COMPANY IN PEER COMPARISON
+                if t == ticker:
+                    continue
+                    
                 d = process_data(raw_data[t].copy()).iloc[-1]
-                ebitda_margin = (d['EBITDA'] / d['Revenue']) * 100 if d['Revenue'] > 0 else 0
-                net_margin = (d['Net_Income'] / d['Revenue']) * 100 if d['Revenue'] > 0 else 0
+                
+                # EBITDA Margin Safety (Avoid small denom)
+                if d['Revenue'] > 1: # > 1 Crore to avoid division by near-zero
+                    ebitda_margin = (d['EBITDA'] / d['Revenue']) * 100
+                    net_margin = (d['Net_Income'] / d['Revenue']) * 100
+                else:
+                    ebitda_margin = 0
+                    net_margin = 0
                 
                 peers.append({
                     'Ticker': t, 
@@ -874,66 +924,60 @@ def main():
             
             peer_df = pd.DataFrame(peers).set_index('Ticker')
             
-            # Display Comparative Table
-            st.markdown('<div class="content-card">', unsafe_allow_html=True)
-            st.dataframe(peer_df.style.format("{:.2f}").background_gradient(cmap="Blues"), use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            # Visual Comparison Charts
-            col_v1, col_v2 = st.columns(2)
-            
-            with col_v1:
+            if not peer_df.empty:
+                # Display Comparative Table
                 st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                # Scatter Plot for Valuation vs Profitability
-                fig_scatter = px.scatter(peer_df, x='ROE (%)', y='P/E Ratio', text=peer_df.index, size='Revenue (Cr)', title="P/E vs ROE (Size = Revenue)", color=peer_df.index)
-                fig_scatter.update_traces(textposition='top center')
-                fig_scatter = format_chart(fig_scatter)
-                st.plotly_chart(fig_scatter, use_container_width=True)
+                st.dataframe(peer_df.style.format("{:.2f}").background_gradient(cmap="Blues"), use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-            with col_v2:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                # Grouped Bar for Multiples
-                fig_ev = go.Figure()
-                fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['P/E Ratio'], name='P/E'))
-                fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['EV/EBITDA'], name='EV/EBITDA'))
-                fig_ev.update_layout(title="Valuation Multiples", barmode='group')
-                fig_ev = format_chart(fig_ev)
-                st.plotly_chart(fig_ev, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-            
-            st.markdown("### Profitability & Efficiency Comparison")
-            col_p1, col_p2 = st.columns(2)
-            
-            with col_p1:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_roe = px.bar(peer_df, x=peer_df.index, y='ROE (%)', title="Return on Equity (ROE)", color=peer_df.index, text_auto='.1f')
-                fig_roe = format_chart(fig_roe)
-                st.plotly_chart(fig_roe, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                # Visual Comparison Charts
+                col_v1, col_v2 = st.columns(2)
                 
-            with col_p2:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_marg = go.Figure()
-                fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['EBITDA Margin (%)'], name='EBITDA Margin'))
-                fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['Net Profit Margin (%)'], name='Net Margin'))
-                fig_marg.update_layout(title="Operating Margins", barmode='group')
-                fig_marg = format_chart(fig_marg)
-                st.plotly_chart(fig_marg, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                with col_v1:
+                    st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                    # Scatter Plot for Valuation vs Profitability
+                    fig_scatter = px.scatter(peer_df, x='ROE (%)', y='P/E Ratio', text=peer_df.index, size='Revenue (Cr)', title="P/E vs ROE (Size = Revenue)", color=peer_df.index)
+                    fig_scatter.update_traces(textposition='top center')
+                    fig_scatter = format_chart(fig_scatter)
+                    st.plotly_chart(fig_scatter, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    
+                with col_v2:
+                    st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                    # Grouped Bar for Multiples
+                    fig_ev = go.Figure()
+                    fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['P/E Ratio'], name='P/E'))
+                    fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['EV/EBITDA'], name='EV/EBITDA'))
+                    fig_ev.update_layout(title="Valuation Multiples", barmode='group')
+                    fig_ev = format_chart(fig_ev)
+                    st.plotly_chart(fig_ev, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                
+                st.markdown("### Profitability & Efficiency Comparison")
+                col_p1, col_p2 = st.columns(2)
+                
+                with col_p1:
+                    st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                    fig_roe = px.bar(peer_df, x=peer_df.index, y='ROE (%)', title="Return on Equity (ROE)", color=peer_df.index, text_auto='.1f')
+                    fig_roe = format_chart(fig_roe)
+                    st.plotly_chart(fig_roe, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                    
+                with col_p2:
+                    st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                    fig_marg = go.Figure()
+                    fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['EBITDA Margin (%)'], name='EBITDA Margin'))
+                    fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['Net Profit Margin (%)'], name='Net Margin'))
+                    fig_marg.update_layout(title="Operating Margins", barmode='group')
+                    fig_marg = format_chart(fig_marg)
+                    st.plotly_chart(fig_marg, use_container_width=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
+            else:
+                st.info("No peers available for comparison (only 1 company in dataset).")
                 
         # Tab 5: Report
         with t5:
             st.markdown("### Generate Investment Note")
-            
-            # Added default risks since they weren't defined in the scope
-            risks = [
-                "Macroeconomic headwinds affecting consumer discretionary spending.",
-                "Fluctuations in raw material prices (commodities) impacting margins.",
-                "Intensifying competitive landscape from new entrants and D2C brands.",
-                "Regulatory changes in taxation or environmental standards.",
-                "Execution risk in new product launches or market expansion."
-            ]
             
             if st.button("Download PDF Report"):
                 pdf_bytes = generate_pdf(ticker, target_price, upside, final_wacc, ke, kd, s_tg, proj_df, latest, peer_df, df, risks)
