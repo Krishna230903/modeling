@@ -60,9 +60,9 @@ st.markdown("""
         text-align: center;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         transition: transform 0.2s;
-        border-top: 1px solid #e0e0e0;
-        border-right: 1px solid #e0e0e0;
-        border-bottom: 1px solid #e0e0e0;
+        border: 1px solid #e0e0e0;
+        margin-bottom: 10px;
+        height: 100%; /* Fill column */
     }
     .metric-card:hover {
         transform: translateY(-2px);
@@ -201,11 +201,13 @@ def process_data(df):
     df.columns = df.columns.str.strip()
     
     # Critical columns needed for valuation based on PDF logic
+    # Added Current_Assets and Current_Liabilities to calculate WC if Change_in_WC is missing
     expected_cols = [
         'Revenue', 'EBITDA', 'Net_Income', 'Depreciation', 'Interest_Expense',
         'CapEx', 'Change_in_WC', 'Total_Debt', 'Cash_Equivalents', 'Shares_Outstanding',
         'Avg_Price', 'Beta', 'Risk_Free_Rate', 'Market_Return', 'Terminal_Growth', 
-        'Projected_Growth', 'Tax_Rate', 'Total_Equity', 'Total_Assets'
+        'Projected_Growth', 'Tax_Rate', 'Total_Equity', 'Total_Assets',
+        'Current_Assets', 'Current_Liabilities'
     ]
     
     # 1. Ensure all columns exist
@@ -222,6 +224,14 @@ def process_data(df):
                 pass 
         elif pd.api.types.is_numeric_dtype(df[col]):
              df[col] = df[col].fillna(0)
+
+    # 2.1 Calculate Change in WC if it is zero
+    # Logic: WC = Current Assets - Current Liabilities. Change = WC_this_year - WC_last_year
+    if df['Change_in_WC'].sum() == 0:
+        # Check if we have data to calculate it
+        if df['Current_Assets'].sum() != 0 and df['Current_Liabilities'].sum() != 0:
+            df['Calculated_WC'] = df['Current_Assets'] - df['Current_Liabilities']
+            df['Change_in_WC'] = df['Calculated_WC'].diff().fillna(0)
 
     # 3. Calculate Base Metrics (FCFF)
     df['EBIT'] = df['EBITDA'] - df['Depreciation']
@@ -253,7 +263,13 @@ def calculate_wacc_dynamic(row):
     rf = row['Risk_Free_Rate']
     rm = row['Market_Return']
     beta = row['Beta']
-    ke = rf + beta * (rm - rf)
+    
+    # Fallback if Rf or Rm are 0 (prevents WACC=0 and Discount Factor=1)
+    if rf == 0 and rm == 0:
+        # Default logic if data is missing to prevent math errors
+        ke = 0.12 # 12% default Cost of Equity
+    else:
+        ke = rf + beta * (rm - rf)
     
     # 2. Cost of Debt (Kd)
     debt = row['Total_Debt']
@@ -277,6 +293,11 @@ def calculate_wacc_dynamic(row):
     wd = debt / total_val if total_val > 0 else 0
     
     wacc = (we * ke) + (wd * kd)
+    
+    # Safety: If WACC is suspiciously low (e.g. < 1%), default to 10%
+    if wacc < 0.01:
+        wacc = 0.10
+        
     return wacc, ke, kd
 
 def project_financials(latest, wacc, growth_rate, tg, years=10):
@@ -324,6 +345,9 @@ def project_financials(latest, wacc, growth_rate, tg, years=10):
         p_fcff = p_nopat + p_dep - p_capex - p_wc
         
         # 4. Discount to PV
+        # Ensure wacc isn't 0
+        if wacc == 0: wacc = 0.1
+        
         dfactor = (1 + wacc) ** i
         pv = p_fcff / dfactor
         future_fcff.append(p_fcff)
@@ -346,7 +370,7 @@ def project_financials(latest, wacc, growth_rate, tg, years=10):
     last_fcff = future_fcff[-1]
     
     # Bug Fix: Ensure WACC > Terminal Growth
-    safe_tg = min(tg, latest['Risk_Free_Rate'])
+    safe_tg = min(tg, latest['Risk_Free_Rate']) if latest['Risk_Free_Rate'] > 0 else tg
     if wacc <= safe_tg + TG_BUFFER:
         safe_tg = wacc - TG_BUFFER
     
@@ -360,6 +384,27 @@ def calculate_valuation(latest, proj_df, pv_tv):
     equity_val = enterprise_val - latest['Total_Debt'] + latest['Cash_Equivalents']
     target_price = equity_val / latest['Shares_Outstanding']
     return target_price, equity_val
+
+# Helper to enforce black text on charts
+def format_chart(fig):
+    fig.update_layout(
+        font=dict(color="black", family="Inter, sans-serif"),
+        title=dict(font=dict(color="black")),
+        legend=dict(font=dict(color="black")),
+        xaxis=dict(
+            title_font=dict(color="black"),
+            tickfont=dict(color="black"),
+            showgrid=False
+        ),
+        yaxis=dict(
+            title_font=dict(color="black"),
+            tickfont=dict(color="black"),
+            showgrid=False
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white'
+    )
+    return fig
 
 # --- 5. REPORTING ---
 class PDFReport(FPDF):
@@ -605,6 +650,10 @@ def main():
         base_wacc, ke, kd = calculate_wacc_dynamic(latest)
         final_wacc = base_wacc + user_wacc_adj
         
+        # Display warning if WACC was defaulted
+        if latest['Risk_Free_Rate'] == 0:
+            st.toast("⚠️ Warning: Risk Free Rate is 0 in data. Used default WACC.", icon="⚠️")
+        
         # Scenario Analysis
         scenarios = {
             "Base Case": (user_proj_growth, user_term_growth),
@@ -718,13 +767,11 @@ def main():
             
             fig_proj.update_layout(
                 title="5-Year Financial Forecast (Dual Axis)", 
-                plot_bgcolor='white', 
-                paper_bgcolor='white', 
-                font={'color': '#000000'},
                 yaxis=dict(title='Revenue', showgrid=False),
                 yaxis2=dict(title='EBIT / FCFF', overlaying='y', side='right', showgrid=False),
                 legend=dict(orientation="h", y=1.1)
             )
+            fig_proj = format_chart(fig_proj)
             st.plotly_chart(fig_proj, use_container_width=True)
             
             # 2. Valuation Bridge
@@ -734,7 +781,8 @@ def main():
                 y=[proj_df['PV FCFF'].sum(), pv_tv, 0],
                 connector={"line":{"color":"#000000"}}
             ))
-            fig.update_layout(title="Enterprise Value Composition", height=350, plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
+            fig.update_layout(title="Enterprise Value Composition", height=350)
+            fig = format_chart(fig)
             st.plotly_chart(fig, use_container_width=True)
             
             if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD:
@@ -794,9 +842,9 @@ def main():
                 title="Target Price Sensitivity (WACC vs Terminal Growth)", 
                 xaxis_title="Terminal Growth", 
                 yaxis_title="WACC",
-                yaxis=dict(autorange="reversed"),
-                font={'color': '#000000'}
+                yaxis=dict(autorange="reversed")
             )
+            fig_heat = format_chart(fig_heat)
             st.plotly_chart(fig_heat, use_container_width=True)
             
             st.info(f"Implied P/E at Target Price: {implied_pe:.1f}x")
@@ -839,7 +887,7 @@ def main():
                 # Scatter Plot for Valuation vs Profitability
                 fig_scatter = px.scatter(peer_df, x='ROE (%)', y='P/E Ratio', text=peer_df.index, size='Revenue (Cr)', title="P/E vs ROE (Size = Revenue)", color=peer_df.index)
                 fig_scatter.update_traces(textposition='top center')
-                fig_scatter.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
+                fig_scatter = format_chart(fig_scatter)
                 st.plotly_chart(fig_scatter, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
@@ -849,7 +897,8 @@ def main():
                 fig_ev = go.Figure()
                 fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['P/E Ratio'], name='P/E'))
                 fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['EV/EBITDA'], name='EV/EBITDA'))
-                fig_ev.update_layout(title="Valuation Multiples", barmode='group', plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
+                fig_ev.update_layout(title="Valuation Multiples", barmode='group')
+                fig_ev = format_chart(fig_ev)
                 st.plotly_chart(fig_ev, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
             
@@ -859,7 +908,7 @@ def main():
             with col_p1:
                 st.markdown('<div class="content-card">', unsafe_allow_html=True)
                 fig_roe = px.bar(peer_df, x=peer_df.index, y='ROE (%)', title="Return on Equity (ROE)", color=peer_df.index, text_auto='.1f')
-                fig_roe.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
+                fig_roe = format_chart(fig_roe)
                 st.plotly_chart(fig_roe, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
@@ -868,13 +917,24 @@ def main():
                 fig_marg = go.Figure()
                 fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['EBITDA Margin (%)'], name='EBITDA Margin'))
                 fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['Net Profit Margin (%)'], name='Net Margin'))
-                fig_marg.update_layout(title="Operating Margins", barmode='group', plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
+                fig_marg.update_layout(title="Operating Margins", barmode='group')
+                fig_marg = format_chart(fig_marg)
                 st.plotly_chart(fig_marg, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
         # Tab 5: Report
         with t5:
             st.markdown("### Generate Investment Note")
+            
+            # Added default risks since they weren't defined in the scope
+            risks = [
+                "Macroeconomic headwinds affecting consumer discretionary spending.",
+                "Fluctuations in raw material prices (commodities) impacting margins.",
+                "Intensifying competitive landscape from new entrants and D2C brands.",
+                "Regulatory changes in taxation or environmental standards.",
+                "Execution risk in new product launches or market expansion."
+            ]
+            
             if st.button("Download PDF Report"):
                 pdf_bytes = generate_pdf(ticker, target_price, upside, final_wacc, ke, kd, s_tg, proj_df, latest, peer_df, df, risks)
                 b64 = base64.b64encode(pdf_bytes).decode()
