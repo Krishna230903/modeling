@@ -638,7 +638,7 @@ def main():
         try:
             stock = yf.Ticker(y_ticker)
             # Try history first as it's often more reliable than fast_info
-            hist = stock.history(period="1d")
+            hist = stock.history(period="5d")
             if not hist.empty:
                 live_price = hist['Close'].iloc[-1]
                 is_live = True
