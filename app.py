@@ -71,16 +71,16 @@ st.markdown("""
     .metric-val {
         font-size: 28px;
         font-weight: 700;
-        color: #000000 !important;
+        color: #000000 !important; /* STRICT BLACK */
         margin: 5px 0;
-        font-family: 'Roboto Mono', monospace; /* Number font */
+        font-family: 'Roboto Mono', monospace; 
     }
     .metric-lbl {
         font-size: 12px;
-        color: #555555 !important;
+        color: #000000 !important; /* STRICT BLACK */
         text-transform: uppercase;
         letter-spacing: 1px;
-        font-weight: 600;
+        font-weight: 700;
     }
     
     /* Custom Content Cards */
@@ -108,13 +108,21 @@ st.markdown("""
         font-family: 'Playfair Display', serif;
         font-size: 32px;
         font-weight: 700;
-        color: #2c3e50 !important;
+        color: #000000 !important; /* STRICT BLACK */
         margin-bottom: 10px;
     }
     .login-sub {
-        color: #7f8c8d !important;
+        color: #000000 !important; /* STRICT BLACK */
         font-size: 14px;
         margin-bottom: 30px;
+        font-weight: 500;
+    }
+    .login-label {
+        text-align: left;
+        font-weight: 700;
+        font-size: 14px;
+        margin-bottom: 5px;
+        color: #000000 !important; /* STRICT BLACK */
     }
     
     /* Tables */
@@ -130,8 +138,8 @@ st.markdown("""
     }
     tbody tr td {
         color: #000000 !important;
-        font-weight: 500;
-        font-family: 'Roboto Mono', monospace; /* Numbers in tables */
+        font-weight: 600;
+        font-family: 'Roboto Mono', monospace; 
         font-size: 14px;
     }
     
@@ -154,7 +162,7 @@ st.markdown("""
         color: #000000 !important;
         font-weight: 800;
         letter-spacing: -0.5px;
-        font-family: 'Playfair Display', serif; /* Distinguished headers */
+        font-family: 'Playfair Display', serif; 
     }
     
     /* Buttons */
@@ -169,6 +177,12 @@ st.markdown("""
     .stButton button:hover {
         background-color: #34495e;
         color: white;
+    }
+    
+    /* Input Labels */
+    div[data-testid="stMarkdownContainer"] p {
+        color: #000000 !important;
+        font-weight: 500;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -535,7 +549,7 @@ def main():
             <div class="login-container">
                 <div class="login-header">SENTINEL</div>
                 <div class="login-sub">Institutional Financial Intelligence</div>
-                <div style="text-align:left; font-weight:600; font-size:14px; margin-bottom:5px; color:#2c3e50;">Secure Access</div>
+                <div class="login-label">Secure Access</div>
             """, unsafe_allow_html=True)
             
             user = st.text_input("Username", placeholder="admin")
@@ -654,7 +668,7 @@ def main():
         # --- KPI CARDS ---
         c1, c2, c3, c4 = st.columns(4)
         c1.markdown(f'<div class="metric-card"><div class="metric-lbl">Target Value (Intrinsic)</div><div class="metric-val">₹ {target_price:,.2f}</div></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-card"><div class="metric-lbl">Current Price (Per Share)</div><div class="metric-val">₹ {live_price:,.2f}</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="metric-card"><div class="metric-lbl">Current Price {"(Live)" if is_live else "(Book)"}</div><div class="metric-val">₹ {live_price:,.2f}</div></div>', unsafe_allow_html=True)
         
         up_color = "#27ae60" if upside > 0 else "#c0392b"
         c3.markdown(f'<div class="metric-card" style="border-left: 5px solid {up_color};"><div class="metric-lbl">Implied Upside</div><div class="metric-val" style="color:{up_color}">{upside:+.2f}%</div></div>', unsafe_allow_html=True)
@@ -679,7 +693,7 @@ def main():
         st.markdown("<br>", unsafe_allow_html=True)
         
         # --- TABS ---
-        t1, t2, t3, t4, t5 = st.tabs(["📊 Projections (5Y)", "🧮 WACC Build", "📈 Trends", "👥 Comparable Analysis", "📄 Report"])
+        t1, t2, t3, t4, t5 = st.tabs(["📊 Projections (5Y)", "🧮 WACC Build", "📈 Sensitivity", "👥 Comparable Analysis", "📄 Report"])
         
         # Tab 1: Projections
         with t1:
@@ -742,22 +756,42 @@ def main():
                 }), hide_index=True, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
-        # Tab 3: Historical Trends
+        # Tab 3: Sensitivity Analysis
         with t3:
-            c_trend1, c_trend2 = st.columns(2)
-            with c_trend1:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_rev = px.bar(df, x='Year', y='Revenue', title="Revenue Growth", color_discrete_sequence=['#3498db'])
-                fig_rev.update_layout(plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
-                st.plotly_chart(fig_rev, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-            with c_trend2:
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                fig_prof = px.line(df, x='Year', y=['EBITDA', 'Net_Income'], title="Profitability", markers=True)
-                fig_prof.update_layout(plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
-                st.plotly_chart(fig_prof, use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+            st.subheader("Sensitivity Analysis")
+            
+            # Heatmap Data
+            wacc_range = np.linspace(final_wacc - 0.01, final_wacc + 0.01, 5)
+            tg_range = np.linspace(s_tg - 0.005, s_tg + 0.005, 5)
+            
+            z_values = []
+            for w in wacc_range:
+                row_z = []
+                for t in tg_range:
+                    p_df, p_tv, _ = project_financials(latest, w, s_pg, t, years=10)
+                    val, _ = calculate_valuation(latest, p_df, p_tv)
+                    row_z.append(val)
+                z_values.append(row_z)
                 
+            fig_heat = go.Figure(data=go.Heatmap(
+                z=z_values,
+                x=[f"{t:.1%}" for t in tg_range],
+                y=[f"{w:.1%}" for w in wacc_range],
+                colorscale='RdBu',
+                texttemplate="₹%{z:.0f}"
+            ))
+            # Reverse Y-axis so higher WACC (lower value) is at bottom/top consistent with finance intuition
+            fig_heat.update_layout(
+                title="Target Price Sensitivity (WACC vs Terminal Growth)", 
+                xaxis_title="Terminal Growth", 
+                yaxis_title="WACC",
+                yaxis=dict(autorange="reversed"),
+                font={'color': '#000000'}
+            )
+            st.plotly_chart(fig_heat, use_container_width=True)
+            
+            st.info(f"Implied P/E at Target Price: {implied_pe:.1f}x")
+
         # Tab 4: Peer Comparison
         with t4:
             st.subheader("Comparable Company Analysis (CCA)")
