@@ -18,27 +18,27 @@ TG_BUFFER = 0.002 # 0.2% buffer for WACC > TG
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
-    page_title="IFAVP | Institutional Analytics", 
+    page_title="Sentinel | Institutional Analytics", 
     layout="wide", 
-    page_icon="📊",
+    page_icon="🏛️",
     initial_sidebar_state="expanded"
 )
 
 # --- 2. PREMIUM CORPORATE CSS (Strict Black Text Enforcement) ---
 st.markdown("""
 <style>
-    /* Global Typography - Enforce Black */
+    /* Global Typography - Enforce Black & Professional Font */
     html, body, [class*="css"] {
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
         color: #000000 !important; 
     }
     
-    /* Main Background */
+    /* Main Background - Very Light Cool Grey */
     .stApp {
-        background-color: #f4f7f6; 
+        background-color: #f4f6f8; 
     }
     
-    /* Sidebar Styling */
+    /* Sidebar Styling - Deep Slate Blue */
     section[data-testid="stSidebar"] {
         background-color: #2c3e50;
     }
@@ -54,62 +54,76 @@ st.markdown("""
     /* Metric Cards */
     .metric-card {
         background-color: #ffffff;
-        border-left: 5px solid #3498db;
+        border-left: 5px solid #2980b9;
         padding: 20px;
-        border-radius: 8px;
+        border-radius: 4px;
         text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         transition: transform 0.2s;
+        border-top: 1px solid #e0e0e0;
+        border-right: 1px solid #e0e0e0;
+        border-bottom: 1px solid #e0e0e0;
     }
     .metric-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     .metric-val {
         font-size: 28px;
         font-weight: 700;
         color: #000000 !important;
         margin: 5px 0;
+        font-family: 'Roboto Mono', monospace; /* Number font */
     }
     .metric-lbl {
-        font-size: 13px;
-        color: #000000 !important;
+        font-size: 12px;
+        color: #555555 !important;
         text-transform: uppercase;
         letter-spacing: 1px;
-        font-weight: 700;
+        font-weight: 600;
     }
     
     /* Custom Content Cards */
     .content-card {
         background-color: #ffffff;
         padding: 25px;
-        border-radius: 8px;
-        border: 1px solid #e0e0e0;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        border-radius: 4px;
+        border: 1px solid #d1d5db;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
         margin-bottom: 20px;
     }
     
     /* Login Page Styling */
     .login-container {
         background-color: #ffffff;
-        padding: 40px;
-        border-radius: 12px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        padding: 50px;
+        border-radius: 8px;
+        box-shadow: 0 20px 50px rgba(0,0,0,0.1);
         text-align: center;
-        max-width: 400px;
-        margin: 50px auto;
-        border-top: 5px solid #2c3e50;
+        max-width: 450px;
+        margin: 100px auto;
+        border-top: 6px solid #2c3e50;
     }
-    .login-container h2, .login-container p, .login-container div {
-        color: #000000 !important;
+    .login-header {
+        font-family: 'Playfair Display', serif;
+        font-size: 32px;
+        font-weight: 700;
+        color: #2c3e50 !important;
+        margin-bottom: 10px;
+    }
+    .login-sub {
+        color: #7f8c8d !important;
+        font-size: 14px;
+        margin-bottom: 30px;
     }
     
     /* Tables */
     thead tr th {
-        background-color: #ecf0f1 !important;
+        background-color: #e9ecef !important;
         color: #000000 !important;
         font-weight: 800 !important;
         border-bottom: 2px solid #bdc3c7 !important;
+        font-family: 'Inter', sans-serif;
     }
     tbody tr:nth-child(even) {
         background-color: #f8f9fa;
@@ -117,6 +131,8 @@ st.markdown("""
     tbody tr td {
         color: #000000 !important;
         font-weight: 500;
+        font-family: 'Roboto Mono', monospace; /* Numbers in tables */
+        font-size: 14px;
     }
     
     /* Live Data Badge */
@@ -138,6 +154,21 @@ st.markdown("""
         color: #000000 !important;
         font-weight: 800;
         letter-spacing: -0.5px;
+        font-family: 'Playfair Display', serif; /* Distinguished headers */
+    }
+    
+    /* Buttons */
+    .stButton button {
+        background-color: #2c3e50;
+        color: white;
+        font-weight: 600;
+        border-radius: 4px;
+        border: none;
+        padding: 0.5rem 1rem;
+    }
+    .stButton button:hover {
+        background-color: #34495e;
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -320,14 +351,14 @@ def calculate_valuation(latest, proj_df, pv_tv):
 class PDFReport(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 12)
-        self.cell(0, 10, 'IFAVP - Institutional Valuation Report', 0, 1, 'R')
+        self.cell(0, 10, 'SENTINEL - Institutional Valuation Report', 0, 1, 'R')
         self.line(10, 20, 200, 20)
         self.ln(15)
 
     def footer(self):
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
-        self.cell(0, 10, f'Page {self.page_no()} | Generated by Intelligent Financial Analytics', 0, 0, 'C')
+        self.cell(0, 10, f'Page {self.page_no()} | Generated by Sentinel Financial Analytics', 0, 0, 'C')
 
 def generate_pdf(ticker, target, upside, wacc, ke, kd, tg, proj_df, latest_data, peer_df, hist_df, risks):
     pdf = PDFReport()
@@ -502,15 +533,15 @@ def main():
         with c2:
             st.markdown("""
             <div class="login-container">
-                <h2 style="font-size:24px; margin-bottom:10px;">IFAVP Portal</h2>
-                <p style="color:#333; font-size:14px; margin-bottom:20px;">Institutional Financial Analytics System</p>
-                <div style="text-align:left; font-weight:bold; margin-bottom:5px;">Secure Login</div>
+                <div class="login-header">SENTINEL</div>
+                <div class="login-sub">Institutional Financial Intelligence</div>
+                <div style="text-align:left; font-weight:600; font-size:14px; margin-bottom:5px; color:#2c3e50;">Authorized Access Only</div>
             """, unsafe_allow_html=True)
             
             user = st.text_input("Username", placeholder="admin")
             pw = st.text_input("Password", type="password", placeholder="••••••••")
             
-            if st.button("Access Dashboard", use_container_width=True):
+            if st.button("Secure Login", use_container_width=True):
                 if user=="admin" and pw=="password123":
                     st.session_state['authenticated'] = True
                     st.session_state['user'] = "admin"
@@ -522,7 +553,7 @@ def main():
         return
 
     # Sidebar Layout
-    st.sidebar.markdown("""<div style='text-align: center; padding: 20px 0;'><h2 style='color: white; margin:0; letter-spacing:1px;'>IFAVP</h2><p style='color: #bdc3c7; font-size: 11px; margin-top:5px;'>ANALYTICS SUITE v5.0</p></div>""", unsafe_allow_html=True)
+    st.sidebar.markdown("""<div style='text-align: center; padding: 20px 0;'><h2 style='color: white; margin:0; letter-spacing:1px;'>SENTINEL</h2><p style='color: #bdc3c7; font-size: 11px; margin-top:5px;'>ANALYTICS SUITE v5.0</p></div>""", unsafe_allow_html=True)
     st.sidebar.markdown(f"**Analyst:** {st.session_state['user']}")
     if st.sidebar.button("Log Out"):
         st.session_state['authenticated'] = False
@@ -763,6 +794,25 @@ def main():
                 fig_ev = px.bar(peer_df, x=peer_df.index, y='EV/EBITDA', title="EV / EBITDA", color=peer_df.index, text_auto='.1f')
                 fig_ev.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
                 st.plotly_chart(fig_ev, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown("### Profitability & Efficiency Comparison")
+            col_p1, col_p2 = st.columns(2)
+            
+            with col_p1:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                fig_roe = px.bar(peer_df, x=peer_df.index, y='ROE (%)', title="Return on Equity (ROE)", color=peer_df.index, text_auto='.1f')
+                fig_roe.update_layout(plot_bgcolor='white', paper_bgcolor='white', showlegend=False, font={'color': '#000000'})
+                st.plotly_chart(fig_roe, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+            with col_p2:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                fig_marg = go.Figure()
+                fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['EBITDA Margin (%)'], name='EBITDA Margin'))
+                fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['Net Profit Margin (%)'], name='Net Margin'))
+                fig_marg.update_layout(title="Operating Margins", barmode='group', plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
+                st.plotly_chart(fig_marg, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
                 
         # Tab 5: Report
