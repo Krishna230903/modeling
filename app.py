@@ -30,7 +30,7 @@ st.markdown("""
     /* Global Typography - Enforce Black & Professional Font */
     html, body, [class*="css"] {
         font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        color: #000000; 
+        color: #000000 !important; 
     }
     
     /* Main Background - Very Light Cool Grey */
@@ -43,7 +43,7 @@ st.markdown("""
         background-color: #2c3e50;
     }
     
-    /* Force all sidebar text to be white/light grey */
+    /* Force all sidebar text to be white/light grey for visibility on dark background */
     section[data-testid="stSidebar"] * {
         color: #ecf0f1 !important;
     }
@@ -155,17 +155,22 @@ st.markdown("""
     }
     
     /* Headers */
-    h1, h2, h3, h4 {
+    h1, h2, h3, h4, h5, h6 {
         color: #000000 !important;
         font-weight: 800;
         letter-spacing: -0.5px;
         font-family: 'Playfair Display', serif; 
     }
     
+    /* Paragraphs and Spans in Main Area */
+    .main p, .main span, .main div, .main li {
+        color: #000000 !important;
+    }
+    
     /* Buttons */
     .stButton button {
         background-color: #2c3e50;
-        color: white;
+        color: white !important;
         font-weight: 600;
         border-radius: 4px;
         border: none;
@@ -173,13 +178,18 @@ st.markdown("""
     }
     .stButton button:hover {
         background-color: #34495e;
-        color: white;
+        color: white !important;
     }
     
     /* Input Labels */
-    div[data-testid="stMarkdownContainer"] p {
+    div[data-testid="stMarkdownContainer"] p, label {
         color: #000000 !important;
         font-weight: 500;
+    }
+    
+    /* Selectbox and Widget Text */
+    .stSelectbox div, .stSlider div {
+        color: #000000;
     }
 </style>
 """, unsafe_allow_html=True)
