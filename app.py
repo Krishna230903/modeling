@@ -71,16 +71,16 @@ st.markdown("""
     .metric-val {
         font-size: 28px;
         font-weight: 700;
-        color: #000000 !important;
+        color: #000000 !important; /* STRICT BLACK */
         margin: 5px 0;
-        font-family: 'Roboto Mono', monospace; /* Number font */
+        font-family: 'Roboto Mono', monospace; 
     }
     .metric-lbl {
         font-size: 12px;
-        color: #555555 !important;
+        color: #000000 !important; /* STRICT BLACK */
         text-transform: uppercase;
         letter-spacing: 1px;
-        font-weight: 600;
+        font-weight: 700;
     }
     
     /* Custom Content Cards */
@@ -108,13 +108,21 @@ st.markdown("""
         font-family: 'Playfair Display', serif;
         font-size: 32px;
         font-weight: 700;
-        color: #2c3e50 !important;
+        color: #000000 !important; /* STRICT BLACK */
         margin-bottom: 10px;
     }
     .login-sub {
-        color: #7f8c8d !important;
+        color: #000000 !important; /* STRICT BLACK */
         font-size: 14px;
         margin-bottom: 30px;
+        font-weight: 500;
+    }
+    .login-label {
+        text-align: left;
+        font-weight: 700;
+        font-size: 14px;
+        margin-bottom: 5px;
+        color: #000000 !important; /* STRICT BLACK */
     }
     
     /* Tables */
@@ -130,8 +138,8 @@ st.markdown("""
     }
     tbody tr td {
         color: #000000 !important;
-        font-weight: 500;
-        font-family: 'Roboto Mono', monospace; /* Numbers in tables */
+        font-weight: 600;
+        font-family: 'Roboto Mono', monospace; 
         font-size: 14px;
     }
     
@@ -154,7 +162,7 @@ st.markdown("""
         color: #000000 !important;
         font-weight: 800;
         letter-spacing: -0.5px;
-        font-family: 'Playfair Display', serif; /* Distinguished headers */
+        font-family: 'Playfair Display', serif; 
     }
     
     /* Buttons */
@@ -169,6 +177,12 @@ st.markdown("""
     .stButton button:hover {
         background-color: #34495e;
         color: white;
+    }
+    
+    /* Input Labels */
+    div[data-testid="stMarkdownContainer"] p {
+        color: #000000 !important;
+        font-weight: 500;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -535,7 +549,7 @@ def main():
             <div class="login-container">
                 <div class="login-header">SENTINEL</div>
                 <div class="login-sub">Institutional Financial Intelligence</div>
-                <div style="text-align:left; font-weight:600; font-size:14px; margin-bottom:5px; color:#2c3e50;">Authorized Access Only</div>
+                <div class="login-label">Secure Access</div>
             """, unsafe_allow_html=True)
             
             user = st.text_input("Username", placeholder="admin")
@@ -653,8 +667,8 @@ def main():
         
         st.markdown(f"""
         <div style="display:flex; justify-content:space-around; margin-top:10px; background-color:#e0f2f1; padding:10px; border-radius:5px;">
-            <div><strong>Terminal Value Share of EV:</strong> {terminal_dependency:.1f}% {'⚠️' if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD else '✅'}</div>
-            <div><strong>Implied P/E @ Target:</strong> {implied_pe:.1f}x</div>
+            <div style="color:black;"><strong>Terminal Value Share of EV:</strong> {terminal_dependency:.1f}% {'⚠️' if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD else '✅'}</div>
+            <div style="color:black;"><strong>Implied P/E @ Target:</strong> {implied_pe:.1f}x</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -743,7 +757,8 @@ def main():
                 title="Target Price Sensitivity (WACC vs Terminal Growth)", 
                 xaxis_title="Terminal Growth", 
                 yaxis_title="WACC",
-                yaxis=dict(autorange="reversed") 
+                yaxis=dict(autorange="reversed"),
+                font={'color': '#000000'}
             )
             st.plotly_chart(fig_heat, use_container_width=True)
             
