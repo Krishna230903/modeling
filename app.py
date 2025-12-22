@@ -21,7 +21,6 @@ MACRO_GROWTH_CEILING = 0.05 # 5% hard ceiling for terminal growth
 st.set_page_config(
     page_title="Sentinel | Institutional Analytics", 
     layout="wide", 
-    page_icon="🏛️",
     initial_sidebar_state="expanded"
 )
 
@@ -31,7 +30,7 @@ st.markdown("""
     /* Global Typography - Enforce Black & Professional Font */
     html, body, [class*="css"] {
         font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        color: #000000 !important; 
+        color: #000000; 
     }
     
     /* Main Background - Very Light Cool Grey */
@@ -43,12 +42,9 @@ st.markdown("""
     section[data-testid="stSidebar"] {
         background-color: #2c3e50;
     }
-    section[data-testid="stSidebar"] h1, 
-    section[data-testid="stSidebar"] h2, 
-    section[data-testid="stSidebar"] h3, 
-    section[data-testid="stSidebar"] label, 
-    section[data-testid="stSidebar"] .stMarkdown, 
-    section[data-testid="stSidebar"] p {
+    
+    /* Force all sidebar text to be white/light grey */
+    section[data-testid="stSidebar"] * {
         color: #ecf0f1 !important;
     }
     
@@ -647,7 +643,7 @@ def main():
         st.rerun()
         
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📂 Data Management")
+    st.sidebar.markdown("### Data Management")
     uploaded_file = st.sidebar.file_uploader("Upload Data Model (XLSX)", type=['xlsx'])
     
     # Main Dashboard Logic
@@ -655,11 +651,11 @@ def main():
         raw_data, sheets = load_data(uploaded_file)
         if not raw_data: return
         
-        st.sidebar.markdown("### 🏢 Entity Focus")
+        st.sidebar.markdown("### Entity Focus")
         ticker = st.sidebar.selectbox("Select Company", sheets)
         
         # Explicit Assumptions Panel
-        st.sidebar.markdown("### ⚙️ Assumptions Overrides")
+        st.sidebar.markdown("### Assumptions Overrides")
         with st.sidebar.expander("Modify Key Inputs", expanded=False):
             # Display current base values for context
             base_rev_growth = float(raw_data[ticker].iloc[-1]['Projected_Growth'])
@@ -691,11 +687,11 @@ def main():
         final_wacc = max(base_wacc + user_wacc_adj, 0.03)
         
         if final_wacc != (base_wacc + user_wacc_adj):
-            st.toast("⚠️ WACC adjusted to minimum floor of 3.0%", icon="🛡️")
+            st.toast("WACC adjusted to minimum floor of 3.0%")
 
         # Display warning if WACC was defaulted
         if latest['Risk_Free_Rate'] == 0:
-            st.toast("⚠️ Warning: Risk Free Rate is 0 in data. Used default WACC.", icon="⚠️")
+            st.toast("Warning: Risk Free Rate is 0 in data. Used default WACC.")
         
         # Scenario Analysis
         scenarios = {
@@ -712,7 +708,7 @@ def main():
         
         # Risk Check: Negative Equity Value
         if equity_val < 0:
-            risks.append("⚠️ HIGH RISK: Implied Equity Value is negative due to high debt load relative to cash flows.")
+            risks.append("HIGH RISK: Implied Equity Value is negative due to high debt load relative to cash flows.")
             st.error("Warning: High leverage is eroding equity value.")
         
         # 3. LIVE MARKET DATA
@@ -756,7 +752,7 @@ def main():
         st.markdown(f"**Valuation Date:** {datetime.now().strftime('%d %B %Y')} | **Financials:** INR Crores | **Share Prices:** INR per share | **Scenario:** {selected_scenario}")
         
         if is_live:
-            st.markdown(f'<div class="live-badge">⚡ Live Market Price Active ({y_ticker})</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="live-badge">Live Market Price Active ({y_ticker})</div>', unsafe_allow_html=True)
         else:
             st.warning("Using Book Price (Live data unavailable)")
             
@@ -784,7 +780,7 @@ def main():
         
         st.markdown(f"""
         <div style="display:flex; justify-content:space-around; margin-top:10px; background-color:#e0f2f1; padding:10px; border-radius:5px;">
-            <div style="color:black;"><strong>Terminal Value Share of EV:</strong> {terminal_dependency:.1f}% {'⚠️' if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD else '✅'}</div>
+            <div style="color:black;"><strong>Terminal Value Share of EV:</strong> {terminal_dependency:.1f}% {'(High Risk)' if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD else '(OK)'}</div>
             <div style="color:black;"><strong>Implied P/E @ Target:</strong> {pe_display}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -792,7 +788,7 @@ def main():
         st.markdown("<br>", unsafe_allow_html=True)
         
         # --- TABS ---
-        t1, t2, t3, t4, t5 = st.tabs(["📊 Projections (5Y)", "🧮 WACC Build", "📈 Sensitivity", "👥 Comparable Analysis", "📄 Report"])
+        t1, t2, t3, t4, t5 = st.tabs(["Projections (5Y)", "WACC Build", "Sensitivity", "Comparable Analysis", "Report"])
         
         # Tab 1: Projections
         with t1:
@@ -836,7 +832,7 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
             
             if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD:
-                st.warning(f"⚠️ High Terminal Value Dependency: {terminal_dependency:.1f}% of Value comes from perpetuity.")
+                st.warning(f"High Terminal Value Dependency: {terminal_dependency:.1f}% of Value comes from perpetuity.")
             st.markdown('</div>', unsafe_allow_html=True)
             
         # Tab 2: WACC Build
@@ -958,7 +954,7 @@ def main():
                     implied_price_ev = implied_equity_ev / latest['Shares_Outstanding']
                     
                     # Display Valuation Card
-                    st.markdown("### 🏷️ Relative Valuation (Implied Intrinsic Value)")
+                    st.markdown("### Relative Valuation (Implied Intrinsic Value)")
                     st.markdown("Calculated using the median multiples of the peer group (excluding target).")
                     
                     rv1, rv2 = st.columns(2)
