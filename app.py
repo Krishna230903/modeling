@@ -712,10 +712,19 @@ def main():
             
             # 1. Multi-line Projection Chart
             fig_proj = go.Figure()
-            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['Revenue'], name='Revenue', line=dict(color='#2c3e50', width=3)))
-            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['EBIT'], name='EBIT', line=dict(color='#2980b9', width=2)))
-            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['FCFF'], name='FCFF', line=dict(color='#27ae60', width=2, dash='dot')))
-            fig_proj.update_layout(title="5-Year Financial Forecast", plot_bgcolor='white', paper_bgcolor='white', font={'color': '#000000'})
+            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['Revenue'], name='Revenue (Left)', line=dict(color='#2c3e50', width=3), yaxis='y1'))
+            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['EBIT'], name='EBIT', line=dict(color='#2980b9', width=2), yaxis='y2'))
+            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['FCFF'], name='FCFF', line=dict(color='#27ae60', width=2, dash='dot'), yaxis='y2'))
+            
+            fig_proj.update_layout(
+                title="5-Year Financial Forecast (Dual Axis)", 
+                plot_bgcolor='white', 
+                paper_bgcolor='white', 
+                font={'color': '#000000'},
+                yaxis=dict(title='Revenue', showgrid=False),
+                yaxis2=dict(title='EBIT / FCFF', overlaying='y', side='right', showgrid=False),
+                legend=dict(orientation="h", y=1.1)
+            )
             st.plotly_chart(fig_proj, use_container_width=True)
             
             # 2. Valuation Bridge
@@ -866,19 +875,6 @@ def main():
         # Tab 5: Report
         with t5:
             st.markdown("### Generate Investment Note")
-            st.write("All values are in INR Crores unless stated otherwise. Valuation is scenario-dependent.")
-            
-            # Risk Assessment
-            risks = []
-            # Note: Modeling risk - Assumptions of constant margin & linear reinvestment
-            risks.append("Modeling: Assumes constant EBIT margins and linear CapEx/WC reinvestment rates.")
-            if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD: 
-                risks.append(f"Valuation: High Terminal Value Dependency ({terminal_dependency:.1f}%)")
-            if s_tg > latest['Risk_Free_Rate']: 
-                risks.append("Valuation: Terminal Growth exceeds Risk Free Rate (Aggressive assumption)")
-            if latest['EBITDA'] > 0 and (latest['Total_Debt'] / latest['EBITDA'] > LEVERAGE_WARNING_THRESHOLD): 
-                risks.append("Financial: High Leverage (Net Debt/EBITDA > 3x)")
-            
             if st.button("Download PDF Report"):
                 pdf_bytes = generate_pdf(ticker, target_price, upside, final_wacc, ke, kd, s_tg, proj_df, latest, peer_df, df, risks)
                 b64 = base64.b64encode(pdf_bytes).decode()
