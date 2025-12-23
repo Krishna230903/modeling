@@ -7,6 +7,7 @@ from fpdf import FPDF
 import base64
 from datetime import datetime
 import yfinance as yf
+import io
 
 # --- CONSTANTS ---
 MAX_KD_PRE_TAX = 0.20
@@ -21,202 +22,227 @@ MACRO_GROWTH_CEILING = 0.05 # 5% hard ceiling for terminal growth
 st.set_page_config(
     page_title="Sentinel | Institutional Analytics", 
     layout="wide", 
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    page_icon="🛡️"
 )
 
-# --- 2. PREMIUM CORPORATE CSS (Strict Black Text Enforcement) ---
+# --- 2. UI/UX DESIGN SYSTEM (CSS) ---
 st.markdown("""
 <style>
-    /* Global Typography - Enforce Black & Professional Font */
+    /* IMPORT FONTS */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Playfair+Display:wght@700&family=Roboto+Mono:wght@400;700&display=swap');
+
+    /* GLOBAL VARIABLES */
+    :root {
+        --primary-color: #2c3e50;
+        --accent-color: #2980b9;
+        --success-color: #27ae60;
+        --bg-color: #f8fafc;
+        --card-bg: #ffffff;
+        --text-color: #1e293b;
+    }
+
+    /* BASE STYLES */
     html, body, [class*="css"] {
-        font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        color: #000000 !important; 
-    }
-    
-    /* Main Background - Very Light Cool Grey */
-    .stApp {
-        background-color: #f4f6f8; 
-    }
-    
-    /* Sidebar Styling - Deep Slate Blue */
-    section[data-testid="stSidebar"] {
-        background-color: #2c3e50;
-    }
-    
-    /* Force all sidebar text to be white/light grey for visibility on dark background */
-    section[data-testid="stSidebar"] * {
-        color: #ecf0f1 !important;
-    }
-    
-    /* Metric Cards */
-    .metric-card {
-        background-color: #ffffff;
-        border-left: 5px solid #2980b9;
-        padding: 20px;
-        border-radius: 4px;
-        text-align: center;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        transition: transform 0.2s;
-        border: 1px solid #e0e0e0;
-        margin-bottom: 10px;
-        height: 100%; /* Fill column */
-    }
-    .metric-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    .metric-val {
-        font-size: 28px;
-        font-weight: 700;
-        color: #000000 !important; /* STRICT BLACK */
-        margin: 5px 0;
-        font-family: 'Roboto Mono', monospace; 
-    }
-    .metric-lbl {
-        font-size: 12px;
-        color: #000000 !important; /* STRICT BLACK */
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-weight: 700;
-    }
-    
-    /* Custom Content Cards */
-    .content-card {
-        background-color: #ffffff;
-        padding: 25px;
-        border-radius: 4px;
-        border: 1px solid #d1d5db;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
-    }
-    
-    /* Login Page Styling */
-    .login-container {
-        background-color: #ffffff;
-        padding: 50px;
-        border-radius: 8px;
-        box-shadow: 0 20px 50px rgba(0,0,0,0.1);
-        text-align: center;
-        max-width: 450px;
-        margin: 100px auto;
-        border-top: 6px solid #2c3e50;
-    }
-    .login-header {
-        font-family: 'Playfair Display', serif;
-        font-size: 32px;
-        font-weight: 700;
-        color: #000000 !important; /* STRICT BLACK */
-        margin-bottom: 10px;
-    }
-    .login-sub {
-        color: #000000 !important; /* STRICT BLACK */
-        font-size: 14px;
-        margin-bottom: 30px;
-        font-weight: 500;
-    }
-    .login-label {
-        text-align: left;
-        font-weight: 700;
-        font-size: 14px;
-        margin-bottom: 5px;
-        color: #000000 !important; /* STRICT BLACK */
-    }
-    
-    /* Tables */
-    thead tr th {
-        background-color: #e9ecef !important;
-        color: #000000 !important;
-        font-weight: 800 !important;
-        border-bottom: 2px solid #bdc3c7 !important;
         font-family: 'Inter', sans-serif;
+        color: var(--text-color) !important;
+        background-color: var(--bg-color);
     }
-    tbody tr:nth-child(even) {
-        background-color: #f8f9fa;
+
+    /* SIDEBAR STYLING */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+        border-right: 1px solid #334155;
     }
-    tbody tr td {
-        color: #000000 !important;
+    section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+        color: #f8fafc !important;
+    }
+    section[data-testid="stSidebar"] p, section[data-testid="stSidebar"] span, section[data-testid="stSidebar"] label {
+        color: #94a3b8 !important;
+    }
+    
+    /* CUSTOM CARDS */
+    .metric-card {
+        background-color: var(--card-bg);
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        transition: all 0.3s ease;
+        text-align: center;
+        height: 100%;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        border-color: var(--accent-color);
+    }
+    
+    .metric-lbl {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #64748b !important;
         font-weight: 600;
-        font-family: 'Roboto Mono', monospace; 
-        font-size: 14px;
+        margin-bottom: 8px;
     }
     
-    /* Live Data Badge */
-    .live-badge {
-        display: inline-block;
-        padding: 6px 12px;
-        background-color: #e8f5e9;
-        color: #2e7d32 !important;
-        border-radius: 20px;
-        font-size: 12px;
+    .metric-val {
+        font-family: 'Roboto Mono', monospace;
+        font-size: 1.75rem;
         font-weight: 700;
-        border: 1px solid #a5d6a7;
-        margin-left: 10px;
-        vertical-align: middle;
+        color: var(--primary-color) !important;
     }
-    
-    /* Headers */
-    h1, h2, h3, h4, h5, h6 {
-        color: #000000 !important;
-        font-weight: 800;
-        letter-spacing: -0.5px;
-        font-family: 'Playfair Display', serif; 
+
+    /* CONTENT CONTAINERS */
+    .content-card {
+        background-color: var(--card-bg);
+        padding: 30px;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+        margin-bottom: 24px;
     }
-    
-    /* Paragraphs and Spans in Main Area */
-    .main p, .main span, .main div, .main li {
-        color: #000000 !important;
+
+    /* HEADERS */
+    h1, h2, h3 {
+        font-family: 'Playfair Display', serif;
+        color: var(--primary-color) !important;
+        font-weight: 700;
     }
-    
-    /* Buttons */
+
+    /* LOGIN SCREEN */
+    .login-container {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        padding: 60px 40px;
+        border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        text-align: center;
+        max-width: 400px;
+        margin: 80px auto;
+        border: 1px solid #e2e8f0;
+    }
+    .login-title {
+        font-family: 'Playfair Display', serif;
+        font-size: 2.5rem;
+        color: var(--primary-color);
+        margin-bottom: 0.5rem;
+    }
+    .login-subtitle {
+        color: #64748b;
+        font-size: 0.875rem;
+        margin-bottom: 2rem;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+
+    /* BUTTONS */
     .stButton button {
-        background-color: #2c3e50;
+        background-color: var(--primary-color);
         color: white !important;
         font-weight: 600;
-        border-radius: 4px;
+        border-radius: 8px;
+        padding: 0.6rem 1.2rem;
         border: none;
-        padding: 0.5rem 1rem;
+        transition: background 0.2s;
+        width: 100%;
     }
     .stButton button:hover {
         background-color: #34495e;
-        color: white !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
     
-    /* Input Labels */
-    div[data-testid="stMarkdownContainer"] p, label {
-        color: #000000 !important;
-        font-weight: 500;
-    }
-    
-    /* Selectbox and Widget Text */
-    .stSelectbox div, .stSlider div {
-        color: #000000;
+    /* TABLES */
+    thead tr th {
+        background-color: #f1f5f9 !important;
+        color: #334155 !important;
+        font-weight: 700 !important;
     }
 
-    /* Force Streamlit Metric Widget text to black */
-    [data-testid="stMetricLabel"] {
-        color: #000000 !important;
+    /* LIVE BADGE */
+    .live-badge {
+        background-color: #dcfce7;
+        color: #166534 !important;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        border: 1px solid #86efac;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
     }
-    [data-testid="stMetricValue"] {
-        color: #000000 !important;
+    .live-dot {
+        width: 8px;
+        height: 8px;
+        background-color: #166534;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. DATA ENGINE ---
+# --- 3. HELPER FUNCTIONS ---
+
+def generate_excel_template():
+    """Generates an in-memory Excel file with dummy data."""
+    buffer = io.BytesIO()
+    
+    # Dummy data ensuring all required columns are present
+    data = {
+        'Year': [2023, 2024],
+        'Revenue': [50000, 55000],
+        'EBITDA': [12000, 13200],
+        'Net_Income': [8000, 8800],
+        'Depreciation': [1000, 1100],
+        'Interest_Expense': [200, 180],
+        'CapEx': [1500, 1650],
+        'Change_in_WC': [500, 550],
+        'Total_Debt': [2000, 1800],
+        'Cash_Equivalents': [4000, 4500],
+        'Shares_Outstanding': [235, 235],
+        'Avg_Price': [2450, 2600],
+        'Beta': [0.65, 0.65],
+        'Risk_Free_Rate': [0.07, 0.07],
+        'Market_Return': [0.12, 0.12],
+        'Terminal_Growth': [0.05, 0.05],
+        'Projected_Growth': [0.10, 0.10],
+        'Tax_Rate': [0.25, 0.25],
+        'Total_Equity': [45000, 50000],
+        'Total_Assets': [60000, 66000],
+        'Current_Assets': [15000, 16500],
+        'Current_Liabilities': [8000, 8800]
+    }
+    
+    df = pd.DataFrame(data)
+    
+    # Use pandas to write the Excel file to the buffer
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='TEMPLATE_DATA', index=False)
+        
+    buffer.seek(0)
+    return buffer
+
 @st.cache_data(show_spinner=False)
 def load_data(file):
     try:
         xl = pd.ExcelFile(file)
         return {sheet: xl.parse(sheet) for sheet in xl.sheet_names}, xl.sheet_names
     except Exception as e:
+        st.error(f"Error loading data: {e}")
         return None, []
 
 def process_data(df):
-    # Standardize column names (strip whitespace)
     df.columns = df.columns.str.strip()
-    
-    # Critical columns needed for valuation based on PDF logic
-    # Added Current_Assets and Current_Liabilities to calculate WC if Change_in_WC is missing
     expected_cols = [
         'Revenue', 'EBITDA', 'Net_Income', 'Depreciation', 'Interest_Expense',
         'CapEx', 'Change_in_WC', 'Total_Debt', 'Cash_Equivalents', 'Shares_Outstanding',
@@ -225,11 +251,9 @@ def process_data(df):
         'Current_Assets', 'Current_Liabilities'
     ]
     
-    # 1. Ensure all columns exist
     for c in expected_cols:
         if c not in df.columns: df[c] = 0
             
-    # 2. ROBUST CLEANING: Remove commas and convert to float
     for col in df.columns:
         if df[col].dtype == 'object': 
             try:
@@ -240,27 +264,18 @@ def process_data(df):
         elif pd.api.types.is_numeric_dtype(df[col]):
              df[col] = df[col].fillna(0)
 
-    # 2.1 Calculate Change in WC if it is zero
-    # Logic: WC = Current Assets - Current Liabilities. Change = WC_this_year - WC_last_year
     if df['Change_in_WC'].sum() == 0:
-        # Check if we have data to calculate it
         if df['Current_Assets'].sum() != 0 and df['Current_Liabilities'].sum() != 0:
             df['Calculated_WC'] = df['Current_Assets'] - df['Current_Liabilities']
             df['Change_in_WC'] = df['Calculated_WC'].diff().fillna(0)
 
-    # 3. Calculate Base Metrics (FCFF)
     df['EBIT'] = df['EBITDA'] - df['Depreciation']
     df['NOPAT'] = df['EBIT'] * (1 - df['Tax_Rate'])
-    
-    # Exact FCFF Formula: NOPAT + D&A - CapEx - Change in Working Capital
-    # Convention: Change_in_WC is (Current Year WC - Previous Year WC). Positive means cash outflow.
     df['FCFF'] = df['NOPAT'] + df['Depreciation'] - df['CapEx'] - df['Change_in_WC']
     
-    # Financial Ratios
     df['ROE'] = np.where(df['Total_Equity'] != 0, df['Net_Income'] / df['Total_Equity'], 0)
     df['PE'] = np.where(df['Net_Income'] != 0, df['Avg_Price'] / (df['Net_Income'] / df['Shares_Outstanding']), 0)
     
-    # Enterprise Value for Multiples
     market_cap = df['Avg_Price'] * df['Shares_Outstanding']
     df['Enterprise_Value'] = market_cap + df['Total_Debt'] - df['Cash_Equivalents']
     df['EV_EBITDA'] = np.where(df['EBITDA'] != 0, df['Enterprise_Value'] / df['EBITDA'], 0)
@@ -270,23 +285,15 @@ def process_data(df):
 
 # --- 4. DYNAMIC CALCULATION ENGINE ---
 def calculate_wacc_dynamic(row):
-    """
-    Calculates WACC using the exact inputs from the Excel row.
-    Logic aligns with PDF methodology (CAPM for Ke).
-    """
-    # 1. Cost of Equity (CAPM)
     rf = row['Risk_Free_Rate']
     rm = row['Market_Return']
     beta = row['Beta']
     
-    # Fallback if Rf or Rm are 0 (prevents WACC=0 and Discount Factor=1)
     if rf == 0 and rm == 0:
-        # Default logic if data is missing to prevent math errors
-        ke = 0.12 # 12% default Cost of Equity
+        ke = 0.12
     else:
         ke = rf + beta * (rm - rf)
     
-    # 2. Cost of Debt (Kd)
     debt = row['Total_Debt']
     interest = row['Interest_Expense']
     tax_rate = row['Tax_Rate']
@@ -300,7 +307,6 @@ def calculate_wacc_dynamic(row):
         
     kd = kd_pre_tax * (1 - tax_rate)
     
-    # 3. Weights
     market_cap = row['Avg_Price'] * row['Shares_Outstanding']
     total_val = market_cap + debt
     
@@ -309,59 +315,40 @@ def calculate_wacc_dynamic(row):
     
     wacc = (we * ke) + (wd * kd)
     
-    # Safety: Hard Floor for WACC to prevent mathematical explosions or invalid economics
-    # Minimum 3% WACC
-    if wacc < 0.03:
-        wacc = 0.03
+    if wacc < 0.03: wacc = 0.03
         
     return wacc, ke, kd
 
 def project_financials(latest, wacc, growth_rate, tg, years=10):
-    """
-    Projects financials 10 years out (standard for quality FMCG).
-    Uses 'Projected_Growth' passed as argument.
-    """
     rev_base = latest['Revenue']
     tax_rate = latest['Tax_Rate']
     
-    # Ratios as % of Revenue
-    # Assumption: Constant margins going forward (no operating leverage modeled)
     constant_ebit_margin = latest['EBIT'] / rev_base if rev_base > 0 else 0
     dep_pct = latest['Depreciation'] / rev_base if rev_base > 0 else 0
-    # Assumption: Linear reinvestment rates
     capex_pct = latest['CapEx'] / rev_base if rev_base > 0 else 0
     wc_pct = latest['Change_in_WC'] / rev_base if rev_base > 0 else 0
     
     projections = []
     future_fcff = []
-    
     current_growth = growth_rate
     
     for i in range(1, years + 1):
-        # Linearly fade growth after year 5 towards terminal growth
         if i > 5:
-            # Bug Fix: Ensure fade doesn't increase growth if growth_rate < tg
             fade = max(growth_rate - tg, 0) / 5
             current_growth = current_growth - fade
             
-        # 1. Grow Revenue
         if i == 1:
             p_rev = rev_base * (1 + current_growth)
         else:
             p_rev = projections[-1]['Revenue'] * (1 + current_growth)
         
-        # 2. Apply Margins
         p_ebit = p_rev * constant_ebit_margin
         p_nopat = p_ebit * (1 - tax_rate)
         p_dep = p_rev * dep_pct
         p_capex = p_rev * capex_pct
         p_wc = p_rev * wc_pct
-        
-        # 3. Calculate FCFF
         p_fcff = p_nopat + p_dep - p_capex - p_wc
         
-        # 4. Discount to PV
-        # Ensure wacc isn't 0
         if wacc == 0: wacc = 0.1
         
         dfactor = (1 + wacc) ** i
@@ -382,14 +369,7 @@ def project_financials(latest, wacc, growth_rate, tg, years=10):
             "PV FCFF": pv
         })
         
-    # Terminal Value (Gordon Growth Method)
     last_fcff = future_fcff[-1]
-    
-    # --- RIGOROUS ECONOMICS SAFETY CHECK ---
-    # 1. Cap TG at Risk Free Rate (Standard Practice)
-    # 2. Cap TG at 5% (Macro Ceiling)
-    # 3. Cap TG at WACC - Buffer (Mathematical Necessity)
-    
     rf = latest['Risk_Free_Rate'] if latest['Risk_Free_Rate'] > 0 else 0.05
     safe_tg = min(tg, rf, MACRO_GROWTH_CEILING)
     
@@ -404,32 +384,20 @@ def project_financials(latest, wacc, growth_rate, tg, years=10):
 def calculate_valuation(latest, proj_df, pv_tv):
     enterprise_val = proj_df['PV FCFF'].sum() + pv_tv
     equity_val = enterprise_val - latest['Total_Debt'] + latest['Cash_Equivalents']
-    
-    # Valuation Safety: Equity Value cannot effectively be negative for target price context (limited liability)
-    # Though mathematically DCF can be negative, standard output often floors at 0 or flags it.
     target_price = equity_val / latest['Shares_Outstanding']
     target_price = max(target_price, 0)
-    
     return target_price, equity_val
 
-# Helper to enforce black text on charts
 def format_chart(fig):
     fig.update_layout(
-        font=dict(color="black", family="Inter, sans-serif"),
-        title=dict(font=dict(color="black")),
-        legend=dict(font=dict(color="black")),
-        xaxis=dict(
-            title_font=dict(color="black"),
-            tickfont=dict(color="black"),
-            showgrid=False
-        ),
-        yaxis=dict(
-            title_font=dict(color="black"),
-            tickfont=dict(color="black"),
-            showgrid=False
-        ),
+        font=dict(color="#1e293b", family="Inter, sans-serif"),
+        title=dict(font=dict(color="#1e293b", size=18)),
+        legend=dict(font=dict(color="#1e293b")),
+        xaxis=dict(title_font=dict(color="#1e293b"), tickfont=dict(color="#1e293b"), showgrid=False),
+        yaxis=dict(title_font=dict(color="#1e293b"), tickfont=dict(color="#1e293b"), showgrid=True, gridcolor='#f1f5f9'),
         plot_bgcolor='white',
-        paper_bgcolor='white'
+        paper_bgcolor='white',
+        margin=dict(l=40, r=40, t=60, b=40)
     )
     return fig
 
@@ -450,24 +418,21 @@ def generate_pdf(ticker, target, upside, wacc, ke, kd, tg, proj_df, latest_data,
     pdf = PDFReport()
     pdf.add_page()
     
-    # Title
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, f"Equity Research Report: {ticker}", 0, 1)
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 10, f"Valuation Date: {datetime.now().strftime('%Y-%m-%d')}", 0, 1)
     pdf.ln(5)
     
-    # Recommendation Section
     rec = "BUY" if upside > 15 else "ACCUMULATE" if upside > 0 else "HOLD" if upside > -10 else "SELL"
     color = (0, 128, 0) if upside > 0 else (200, 0, 0)
     
     pdf.set_font("Arial", 'B', 14)
     pdf.set_text_color(*color)
     pdf.cell(0, 10, f"Recommendation: {rec} ({upside:+.1f}%)", 0, 1)
-    pdf.set_text_color(0, 0, 0) # Reset
+    pdf.set_text_color(0, 0, 0)
     pdf.ln(5)
     
-    # Executive Summary
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "Valuation Summary (DCF Methodology)", 0, 1)
     pdf.set_font("Arial", '', 11)
@@ -480,30 +445,23 @@ def generate_pdf(ticker, target, upside, wacc, ke, kd, tg, proj_df, latest_data,
     pdf.multi_cell(0, 7, summary_text)
     pdf.ln(5)
     
-    # Methodology & Formulas (NEW SECTION)
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "1. Methodology & Formulas", 0, 1)
     pdf.set_font("Arial", '', 10)
     formula_text = (
         "We utilize the Weighted Average Cost of Capital (WACC) to discount future Free Cash Flows to Firm (FCFF).\n\n"
         "FORMULAS USED:\n"
-        "A) WACC = (We * Ke) + (Wd * Kd)  [Where Kd is post-tax cost of debt]\n"
-        "   - We/Wd: Weights of Equity and Debt\n"
-        "   - Ke: Cost of Equity (CAPM) = Risk Free Rate + Beta * (Market Return - Risk Free Rate)\n"
-        "   - Kd: Cost of Debt (Post-Tax) = (Interest Expense / Total Debt) * (1 - Tax Rate)\n\n"
+        "A) WACC = (We * Ke) + (Wd * Kd)\n"
         "B) FCFF = NOPAT + Depreciation - CapEx - Change in Working Capital\n"
-        "   - NOPAT: Net Operating Profit After Tax = EBIT * (1 - Tax Rate)\n\n"
         "C) Terminal Value = (Final FCFF * (1 + Terminal Growth)) / (WACC - Terminal Growth)"
     )
     pdf.multi_cell(0, 6, formula_text)
     pdf.ln(5)
 
-    # Detailed WACC Calculation
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "2. WACC Calculation (Inputs from Data)", 0, 1)
     pdf.set_font("Arial", '', 10)
     
-    # Create a simple table layout for WACC components
     wacc_data = [
         ("Risk Free Rate (Rf)", f"{latest_data['Risk_Free_Rate']*100:.2f}%"),
         ("Market Return (Rm)", f"{latest_data['Market_Return']*100:.2f}%"),
@@ -521,7 +479,6 @@ def generate_pdf(ticker, target, upside, wacc, ke, kd, tg, proj_df, latest_data,
         pdf.cell(40, 8, val, 1, 1, 'C', fill)
     pdf.ln(5)
     
-    # 5-Year Projections Table (Explicit Request)
     pdf.add_page()
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "3. 5-Year Cash Flow Projections (Forecast)", 0, 1)
@@ -549,111 +506,58 @@ def generate_pdf(ticker, target, upside, wacc, ke, kd, tg, proj_df, latest_data,
         pdf.cell(col_widths[6], 10, f"{row['PV FCFF']:,.0f}", 1, 1, 'R')
     pdf.ln(5)
     
-    # Comparable Analysis
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "4. Comparable Company Analysis (CCA)", 0, 1)
-    
-    pdf.set_font("Arial", 'B', 9)
-    pdf.set_fill_color(50, 50, 50)
-    pdf.set_text_color(255, 255, 255)
-    cols = ["Ticker", "P/E Ratio", "EV/EBITDA", "ROE (%)", "Revenue (Cr)"]
-    widths = [30, 30, 35, 30, 40]
-    
-    for i, c in enumerate(cols):
-        pdf.cell(widths[i], 10, c, 1, 0, 'C', 1)
-    pdf.ln()
-    
-    pdf.set_font("Arial", '', 9)
-    pdf.set_text_color(0, 0, 0)
-    for index, row in peer_df.iterrows():
-        pdf.cell(widths[0], 10, str(index), 1, 0, 'C')
-        pdf.cell(widths[1], 10, f"{row['P/E Ratio']:.1f}x", 1, 0, 'C')
-        pdf.cell(widths[2], 10, f"{row['EV/EBITDA']:.1f}x", 1, 0, 'C')
-        pdf.cell(widths[3], 10, f"{row['ROE (%)']:.1f}%", 1, 0, 'C')
-        pdf.cell(widths[4], 10, f"{row['Revenue (Cr)']:,.0f}", 1, 1, 'C')
-    pdf.ln(5)
-
-    # CCA Valuation Implied Prices (New Section)
     if cca_val_pe is not None and cca_val_ev is not None:
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 10, "Relative Valuation (Implied Intrinsic Value)", 0, 1)
+        pdf.cell(0, 10, "4. Relative Valuation (Implied)", 0, 1)
         pdf.set_font("Arial", '', 10)
-        
         cca_text = (
-            f"Based on the median multiples of the peer group (excluding {ticker}), we derive the following implied values:\n"
-            f"- Implied Price (P/E Basis): INR {cca_val_pe:,.2f} per share\n"
-            f"- Implied Price (EV/EBITDA Basis): INR {cca_val_ev:,.2f} per share"
+            f"Based on peer median multiples:\n"
+            f"- Implied Price (P/E): INR {cca_val_pe:,.2f}\n"
+            f"- Implied Price (EV/EBITDA): INR {cca_val_ev:,.2f}"
         )
         pdf.multi_cell(0, 6, cca_text)
         pdf.ln(5)
     
-    # Historical Data Table
-    pdf.add_page()
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "5. Historical Financial Data (Uploaded)", 0, 1)
-    
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_fill_color(230, 230, 230)
-    hist_cols = ["Year", "Revenue", "EBITDA", "Net Income", "CapEx"]
-    hist_widths = [30, 40, 40, 40, 40]
-    
-    for i, h in enumerate(hist_cols):
-        pdf.cell(hist_widths[i], 10, h, 1, 0, 'C', 1)
-    pdf.ln()
-    
-    pdf.set_font("Arial", '', 10)
-    for index, row in hist_df.iterrows():
-        try:
-            year_val = str(int(row['Year']))
-        except:
-            year_val = str(row['Year'])
-            
-        pdf.cell(hist_widths[0], 10, year_val, 1, 0, 'C')
-        pdf.cell(hist_widths[1], 10, f"{row['Revenue']:,.0f}", 1, 0, 'R')
-        pdf.cell(hist_widths[2], 10, f"{row['EBITDA']:,.0f}", 1, 0, 'R')
-        pdf.cell(hist_widths[3], 10, f"{row['Net_Income']:,.0f}", 1, 0, 'R')
-        pdf.cell(hist_widths[4], 10, f"{row['CapEx']:,.0f}", 1, 1, 'R')
-    pdf.ln(5)
-    
-    # Risks Section (New)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "6. Key Risks & Assumptions", 0, 1)
+    pdf.cell(0, 10, "5. Key Risks", 0, 1)
     pdf.set_font("Arial", '', 10)
     for r in risks:
         pdf.multi_cell(0, 6, f"- {r}")
         
-    return pdf.output(dest='S').encode('latin-1')
+    return pdf.output(dest='S').encode('latin-1', 'replace')
 
 # --- 6. MAIN APPLICATION ---
 def main():
-    # Login System
     if not st.session_state.get('authenticated', False):
-        # Improved Login UI
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2:
             st.markdown("""
             <div class="login-container">
-                <div class="login-header">SENTINEL</div>
-                <div class="login-sub">Institutional Financial Intelligence</div>
-                <div class="login-label">Secure Access</div>
+                <div class="login-title">Sentinel</div>
+                <div class="login-subtitle">Institutional Financial Intelligence</div>
             """, unsafe_allow_html=True)
             
             user = st.text_input("Username", placeholder="admin")
             pw = st.text_input("Password", type="password", placeholder="••••••••")
             
-            if st.button("Secure Login", use_container_width=True):
+            if st.button("Access Dashboard", use_container_width=True):
                 if user=="admin" and pw=="password123":
                     st.session_state['authenticated'] = True
                     st.session_state['user'] = "admin"
                     st.rerun()
                 else:
-                    st.error("Access Denied: Invalid Credentials")
-            
+                    st.error("Access Denied")
             st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    # Sidebar Layout
-    st.sidebar.markdown("""<div style='text-align: center; padding: 20px 0;'><h2 style='color: white; margin:0; letter-spacing:1px;'>SENTINEL</h2><p style='color: #bdc3c7; font-size: 11px; margin-top:5px;'>ANALYTICS SUITE v5.0</p></div>""", unsafe_allow_html=True)
+    # Sidebar
+    st.sidebar.markdown("""
+        <div style='text-align: center; padding: 30px 0;'>
+            <h1 style='color: white; margin:0; font-size: 28px; letter-spacing:1px; font-family:"Playfair Display"'>SENTINEL</h1>
+            <p style='color: #94a3b8; font-size: 11px; margin-top:5px; text-transform:uppercase; letter-spacing:2px;'>Analytics Suite v5.0</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.sidebar.markdown(f"**Analyst:** {st.session_state['user']}")
     if st.sidebar.button("Log Out"):
         st.session_state['authenticated'] = False
@@ -661,57 +565,56 @@ def main():
         st.rerun()
         
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### Data Management")
+    st.sidebar.subheader("Data Management")
+    
+    # Template Download
+    template_file = generate_excel_template()
+    st.sidebar.download_button(
+        label="📥 Download Excel Template",
+        data=template_file,
+        file_name="sentinel_data_template.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        help="Download a pre-formatted Excel file with required columns."
+    )
+    
     uploaded_file = st.sidebar.file_uploader("Upload Data Model (XLSX)", type=['xlsx'])
     
-    # Main Dashboard Logic
     if uploaded_file:
         raw_data, sheets = load_data(uploaded_file)
         if not raw_data: return
         
-        st.sidebar.markdown("### Entity Focus")
+        st.sidebar.subheader("Analysis Controls")
         ticker = st.sidebar.selectbox("Select Company", sheets)
         
-        # Explicit Assumptions Panel
-        st.sidebar.markdown("### Assumptions Overrides")
         with st.sidebar.expander("Modify Key Inputs", expanded=False):
-            # Display current base values for context
-            base_rev_growth = float(raw_data[ticker].iloc[-1]['Projected_Growth'])
-            base_term_growth = float(raw_data[ticker].iloc[-1]['Terminal_Growth'])
+            try:
+                base_rev_growth = float(raw_data[ticker].iloc[-1]['Projected_Growth'])
+                base_term_growth = float(raw_data[ticker].iloc[-1]['Terminal_Growth'])
+            except:
+                base_rev_growth = 0.10
+                base_term_growth = 0.04
             
             user_proj_growth = st.slider(f"Revenue Growth (Base: {base_rev_growth:.1%})", 0.0, 0.20, base_rev_growth, 0.005)
             user_term_growth = st.slider(f"Terminal Growth (Base: {base_term_growth:.1%})", 0.0, 0.10, base_term_growth, 0.005)
-            user_wacc_adj = st.slider("WACC Adjustment (Base: 0.0%)", -0.02, 0.02, 0.0, 0.001)
+            user_wacc_adj = st.slider("WACC Adjustment", -0.02, 0.02, 0.0, 0.001)
         
-        # 1. READ & PROCESS DATA
         df = process_data(raw_data[ticker].copy())
+        if df.empty:
+            st.error("Data processing failed.")
+            return
+
         latest = df.iloc[-1]
-        
-        # Define Risks List Early for accumulation
         risks = [
             "Macroeconomic headwinds affecting consumer discretionary spending.",
-            "Fluctuations in raw material prices (commodities) impacting margins.",
-            "Intensifying competitive landscape from new entrants and D2C brands.",
-            "Regulatory changes in taxation or environmental standards.",
-            "Execution risk in new product launches or market expansion.",
-            "Linear fade approximation used for growth rates converging to terminal growth."
+            "Raw material price volatility impacting gross margins.",
+            "Competitive intensity from new D2C entrants.",
+            "Regulatory risks regarding environmental standards.",
+            "Execution risks in new market expansion."
         ]
         
-        # 2. DYNAMIC CALCULATION
         base_wacc, ke, kd = calculate_wacc_dynamic(latest)
-        
-        # WACC Guardrail: Prevent negative or dangerously low WACC
-        # Ensuring Final WACC is at least 3% strictly
         final_wacc = max(base_wacc + user_wacc_adj, 0.03)
         
-        if final_wacc != (base_wacc + user_wacc_adj):
-            st.toast("WACC adjusted to minimum floor of 3.0%")
-
-        # Display warning if WACC was defaulted
-        if latest['Risk_Free_Rate'] == 0:
-            st.toast("Warning: Risk Free Rate is 0 in data. Used default WACC.")
-        
-        # Scenario Analysis
         scenarios = {
             "Base Case": (user_proj_growth, user_term_growth),
             "Bull Case": (user_proj_growth * 1.2, user_term_growth * 1.1),
@@ -720,168 +623,89 @@ def main():
         selected_scenario = st.sidebar.selectbox("Select Scenario", list(scenarios.keys()))
         s_pg, s_tg = scenarios[selected_scenario]
         
-        # Calculate 10yr for value, but display 5yr focus
         proj_df, pv_tv, tv_val = project_financials(latest, final_wacc, s_pg, s_tg, years=10) 
         target_price, equity_val = calculate_valuation(latest, proj_df, pv_tv)
         
-        # Risk Check: Negative Equity Value
         if equity_val < 0:
-            risks.append("HIGH RISK: Implied Equity Value is negative due to high debt load relative to cash flows.")
-            st.error("Warning: High leverage is eroding equity value.")
+            risks.append("HIGH RISK: Implied Equity Value is negative due to high debt.")
         
-        # 3. LIVE MARKET DATA
+        # Live Price Fetch
         live_price = latest['Avg_Price']
         is_live = False
-        y_ticker = None
-        # Default mapping, can be extended
         TICKER_MAP = {
-            'HUL': 'HINDUNILVR.NS', 
-            'ITC': 'ITC.NS', 
-            'COLPAL': 'COLPAL.NS', 
-            'COLGATE': 'COLPAL.NS',
-            'NESTLE': 'NESTLEIND.NS',
-            'BRITANNIA': 'BRITANNIA.NS'
+            'HUL': 'HINDUNILVR.NS', 'ITC': 'ITC.NS', 'COLPAL': 'COLPAL.NS', 
+            'NESTLE': 'NESTLEIND.NS', 'BRITANNIA': 'BRITANNIA.NS'
         }
-        
-        # Try mapped ticker, then default to Ticker.NS
         y_ticker = TICKER_MAP.get(ticker.upper(), f"{ticker}.NS")
         
         try:
             stock = yf.Ticker(y_ticker)
-            # Try history first as it's often more reliable than fast_info
             hist = stock.history(period="5d")
             if not hist.empty:
                 live_price = hist['Close'].iloc[-1]
                 is_live = True
-            else:
-                # Fallback to fast_info
-                fast_info = stock.fast_info
-                if fast_info and 'last_price' in fast_info and fast_info.last_price:
-                    live_price = fast_info.last_price
-                    is_live = True
-        except Exception as e:
-            # Silent fail to book price if live fetch fails
-            pass
+        except: pass
             
         upside = (target_price - live_price)/live_price * 100
         
-        # --- HEADER SECTION ---
-        st.title(f"{ticker} Valuation Analysis")
-        st.markdown(f"**Valuation Date:** {datetime.now().strftime('%d %B %Y')} | **Financials:** INR Crores | **Share Prices:** INR per share | **Scenario:** {selected_scenario}")
+        # --- DASHBOARD CONTENT ---
+        st.markdown(f"## {ticker} Valuation Analysis")
+        st.markdown(f"**Date:** {datetime.now().strftime('%d %B %Y')} &nbsp;|&nbsp; **Currency:** INR Crores &nbsp;|&nbsp; **Scenario:** {selected_scenario}")
         
         if is_live:
-            st.markdown(f'<div class="live-badge">Live Market Price Active ({y_ticker})</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="live-badge"><div class="live-dot"></div> Live Market Data Active ({y_ticker})</div>', unsafe_allow_html=True)
         else:
             st.warning("Using Book Price (Live data unavailable)")
             
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # --- KPI CARDS ---
+        st.markdown("### Executive Summary")
         c1, c2, c3, c4 = st.columns(4)
-        c1.markdown(f'<div class="metric-card"><div class="metric-lbl">Target Value (Intrinsic)</div><div class="metric-val">₹ {target_price:,.2f}</div></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-card"><div class="metric-lbl">Current Price {"(Live)" if is_live else "(Book)"}</div><div class="metric-val">₹ {live_price:,.2f}</div></div>', unsafe_allow_html=True)
         
-        up_color = "#27ae60" if upside > 0 else "#c0392b"
-        c3.markdown(f'<div class="metric-card" style="border-left: 5px solid {up_color};"><div class="metric-lbl">Implied Upside</div><div class="metric-val" style="color:{up_color}">{upside:+.2f}%</div></div>', unsafe_allow_html=True)
+        with c1: st.markdown(f'<div class="metric-card"><div class="metric-lbl">Intrinsic Value</div><div class="metric-val">₹{target_price:,.0f}</div></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="metric-card"><div class="metric-lbl">Current Price</div><div class="metric-val">₹{live_price:,.0f}</div></div>', unsafe_allow_html=True)
         
-        c4.markdown(f'<div class="metric-card"><div class="metric-lbl">WACC (Applied)</div><div class="metric-val">{final_wacc:.1%}</div></div>', unsafe_allow_html=True)
-        
-        # Additional Insights Row
-        if latest['Net_Income'] > (0.05 * latest['Revenue']): # Threshold for valid P/E
-             implied_pe = target_price / (latest['Net_Income']/latest['Shares_Outstanding'])
-             pe_display = f"{implied_pe:.1f}x"
-        else:
-             implied_pe = np.nan
-             pe_display = "N/A (Low Earnings)"
-             
-        terminal_dependency = (pv_tv / (proj_df['PV FCFF'].sum() + pv_tv)) * 100
-        
-        st.markdown(f"""
-        <div style="display:flex; justify-content:space-around; margin-top:10px; background-color:#e0f2f1; padding:10px; border-radius:5px;">
-            <div style="color:black;"><strong>Terminal Value Share of EV:</strong> {terminal_dependency:.1f}% {'(High Risk)' if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD else '(OK)'}</div>
-            <div style="color:black;"><strong>Implied P/E @ Target:</strong> {pe_display}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        up_color = "var(--success-color)" if upside > 0 else "#ef4444"
+        with c3: st.markdown(f'<div class="metric-card" style="border-bottom: 4px solid {up_color}"><div class="metric-lbl">Upside</div><div class="metric-val" style="color:{up_color} !important">{upside:+.1f}%</div></div>', unsafe_allow_html=True)
+        with c4: st.markdown(f'<div class="metric-card"><div class="metric-lbl">WACC</div><div class="metric-val">{final_wacc:.1%}</div></div>', unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # --- TABS ---
-        t1, t2, t3, t4, t5 = st.tabs(["Projections (5Y)", "WACC Build", "Sensitivity", "Comparable Analysis", "Report"])
+        t1, t2, t3, t4, t5 = st.tabs(["Projections", "WACC Build", "Sensitivity", "Comps", "Report"])
         
-        # Tab 1: Projections
         with t1:
-            st.markdown("### Future Cash Flow Projections (Next 5 Years)")
+            st.markdown("#### 5-Year Cash Flow Forecast")
             st.markdown('<div class="content-card">', unsafe_allow_html=True)
-            # SHOW ONLY FIRST 5 YEARS IN TABLE FOR CLEANLINESS
-            # Highlight FCFF and PV FCFF columns using style
-            st.dataframe(
-                proj_df.head(5).style.format("{:,.0f}")
-                .background_gradient(subset=['FCFF', 'PV FCFF'], cmap='Greens'), 
-                use_container_width=True
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.dataframe(proj_df.head(5).style.format("{:,.0f}").background_gradient(subset=['FCFF'], cmap='Greens'), use_container_width=True)
             
-            st.markdown('<div class="content-card">', unsafe_allow_html=True)
-            
-            # 1. Multi-line Projection Chart
             fig_proj = go.Figure()
-            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['Revenue'], name='Revenue (Left)', line=dict(color='#2c3e50', width=3), yaxis='y1'))
-            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['EBIT'], name='EBIT', line=dict(color='#2980b9', width=2), yaxis='y2'))
-            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['FCFF'], name='FCFF', line=dict(color='#27ae60', width=2, dash='dot'), yaxis='y2'))
-            
-            fig_proj.update_layout(
-                title="5-Year Financial Forecast (Dual Axis)", 
-                yaxis=dict(title='Revenue', showgrid=False),
-                yaxis2=dict(title='EBIT / FCFF', overlaying='y', side='right', showgrid=False),
-                legend=dict(orientation="h", y=1.1)
-            )
-            fig_proj = format_chart(fig_proj)
-            st.plotly_chart(fig_proj, use_container_width=True)
-            
-            # 2. Valuation Bridge
-            fig = go.Figure(go.Waterfall(
-                measure=["relative", "relative", "total"],
-                x=["PV Cash Flows (Total)", "PV Terminal Value", "Enterprise Value"],
-                y=[proj_df['PV FCFF'].sum(), pv_tv, 0],
-                connector={"line":{"color":"#000000"}}
-            ))
-            fig.update_layout(title="Enterprise Value Composition", height=350)
-            fig = format_chart(fig)
-            st.plotly_chart(fig, use_container_width=True)
-            
-            if terminal_dependency > TERMINAL_VALUE_WARNING_THRESHOLD:
-                st.warning(f"High Terminal Value Dependency: {terminal_dependency:.1f}% of Value comes from perpetuity.")
+            fig_proj.add_trace(go.Bar(x=proj_df['Year'], y=proj_df['Revenue'], name='Revenue', marker_color='#cbd5e1'))
+            fig_proj.add_trace(go.Scatter(x=proj_df['Year'], y=proj_df['FCFF'], name='FCFF', line=dict(color='#2c3e50', width=3), yaxis='y2'))
+            fig_proj.update_layout(title="Revenue vs Free Cash Flow", yaxis2=dict(overlaying='y', side='right', showgrid=False))
+            st.plotly_chart(format_chart(fig_proj), use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
-            
-        # Tab 2: WACC Build
+
         with t2:
-            st.subheader("Weighted Average Cost of Capital")
-            st.markdown("All inputs sourced directly from uploaded Excel file.")
-            
-            w1, w2 = st.columns(2)
-            with w1:
+            st.markdown("#### Cost of Capital Decomposition")
+            c_w1, c_w2 = st.columns(2)
+            with c_w1:
                 st.markdown('<div class="content-card">', unsafe_allow_html=True)
                 st.markdown("**Cost of Equity (Ke)**")
-                st.dataframe(pd.DataFrame({
-                    "Component": ["Risk Free Rate", "Beta", "Market Return", "Cost of Equity"],
+                st.table(pd.DataFrame({
+                    "Metric": ["Risk Free Rate", "Beta", "Market Return", "Ke"],
                     "Value": [f"{latest['Risk_Free_Rate']:.2%}", f"{latest['Beta']:.2f}", f"{latest['Market_Return']:.2%}", f"{ke:.2%}"]
-                }), hide_index=True, use_container_width=True)
+                }))
                 st.markdown('</div>', unsafe_allow_html=True)
-            
-            with w2:
+            with c_w2:
                 st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                st.markdown("**Cost of Debt (Kd) & WACC**")
-                st.dataframe(pd.DataFrame({
-                    "Component": ["Interest Expense", "Total Debt", "Tax Rate", "Post-Tax Kd", "Final WACC"],
-                    "Value": [f"{latest['Interest_Expense']:,.0f}", f"{latest['Total_Debt']:,.0f}", f"{latest['Tax_Rate']:.1%}", f"{kd:.2%}", f"{base_wacc:.2%}"]
-                }), hide_index=True, use_container_width=True)
+                st.markdown("**WACC Components**")
+                st.table(pd.DataFrame({
+                    "Metric": ["Cost of Debt (Post-Tax)", "Tax Rate", "Debt Weight", "Equity Weight", "WACC"],
+                    "Value": [f"{kd:.2%}", f"{latest['Tax_Rate']:.1%}", f"{latest['Total_Debt']/(latest['Total_Debt'] + (latest['Avg_Price']*latest['Shares_Outstanding'])):.1%}", f"{(latest['Avg_Price']*latest['Shares_Outstanding'])/(latest['Total_Debt'] + (latest['Avg_Price']*latest['Shares_Outstanding'])):.1%}", f"{final_wacc:.2%}"]
+                }))
                 st.markdown('</div>', unsafe_allow_html=True)
-                
-        # Tab 3: Sensitivity Analysis
+
         with t3:
-            st.subheader("Sensitivity Analysis")
-            
-            # Heatmap Data
+            st.markdown("#### Valuation Sensitivity")
+            st.markdown('<div class="content-card">', unsafe_allow_html=True)
             wacc_range = np.linspace(final_wacc - 0.01, final_wacc + 0.01, 5)
             tg_range = np.linspace(s_tg - 0.005, s_tg + 0.005, 5)
             
@@ -889,198 +713,63 @@ def main():
             for w in wacc_range:
                 row_z = []
                 for t in tg_range:
-                    # Logic Check: WACC must be > TG + Buffer for Math Stability
-                    if w <= t + TG_BUFFER:
-                        row_z.append(np.nan) # Invalid combination
+                    if w <= t + TG_BUFFER: row_z.append(np.nan)
                     else:
                         p_df, p_tv, _ = project_financials(latest, w, s_pg, t, years=10)
                         val, _ = calculate_valuation(latest, p_df, p_tv)
                         row_z.append(val)
                 z_values.append(row_z)
                 
-            fig_heat = go.Figure(data=go.Heatmap(
-                z=z_values,
-                x=[f"{t:.1%}" for t in tg_range],
-                y=[f"{w:.1%}" for w in wacc_range],
-                colorscale='RdBu',
-                texttemplate="₹%{z:.0f}"
-            ))
-            # Reverse Y-axis so higher WACC (lower value) is at bottom/top consistent with finance intuition
-            fig_heat.update_layout(
-                title="Target Price Sensitivity (WACC vs Terminal Growth)", 
-                xaxis_title="Terminal Growth", 
-                yaxis_title="WACC",
-                yaxis=dict(autorange="reversed")
-            )
-            fig_heat = format_chart(fig_heat)
-            st.plotly_chart(fig_heat, use_container_width=True)
-            
-            st.info(f"Implied P/E at Target Price: {pe_display}")
+            fig_heat = go.Figure(data=go.Heatmap(z=z_values, x=[f"{t:.1%}" for t in tg_range], y=[f"{w:.1%}" for w in wacc_range], colorscale='RdBu', texttemplate="₹%{z:.0f}"))
+            fig_heat.update_layout(title="Target Price Sensitivity", xaxis_title="Terminal Growth", yaxis_title="WACC", yaxis=dict(autorange="reversed"))
+            st.plotly_chart(format_chart(fig_heat), use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # Tab 4: Peer Comparison
         with t4:
-            st.subheader("Comparable Company Analysis (CCA)")
-            st.markdown("Benchmarking key valuation multiples and operating metrics across the peer group.")
-            
-            # Aggregate Peer Data
+            st.markdown("#### Peer Comparison")
             peers = []
             for t in sheets:
-                # Include ALL companies in comparison (no exclusions)
                 d = process_data(raw_data[t].copy()).iloc[-1]
-                
-                # EBITDA Margin Safety (Avoid small denom)
-                if d['Revenue'] > 1: # > 1 Crore to avoid division by near-zero
-                    ebitda_margin = (d['EBITDA'] / d['Revenue']) * 100
-                    net_margin = (d['Net_Income'] / d['Revenue']) * 100
-                else:
-                    ebitda_margin = 0
-                    net_margin = 0
-                
                 peers.append({
-                    'Ticker': t, 
-                    'P/E Ratio': d['PE'], 
-                    'EV/EBITDA': d['EV_EBITDA'],
-                    'P/B Ratio': d['PB_Ratio'],
-                    'ROE (%)': d['ROE']*100, 
-                    'EBITDA Margin (%)': ebitda_margin,
-                    'Net Profit Margin (%)': net_margin,
-                    'Revenue (Cr)': d['Revenue']
+                    'Ticker': t, 'P/E': d['PE'], 'EV/EBITDA': d['EV_EBITDA'],
+                    'ROE': d['ROE']*100, 'Rev (Cr)': d['Revenue']
                 })
-            
             peer_df = pd.DataFrame(peers).set_index('Ticker')
             
-            if not peer_df.empty:
-                # Calculate Relative Valuation
-                # Filter peers excluding target for valuation derivation (Standard Practice: Don't value target based on itself)
-                valuation_peers = peer_df[peer_df.index != ticker]
-                
-                if not valuation_peers.empty:
-                    median_pe = valuation_peers['P/E Ratio'].median()
-                    median_ev_ebitda = valuation_peers['EV/EBITDA'].median()
-                    
-                    # Target Metrics for Implied Calculation
-                    target_eps = latest['Net_Income'] / latest['Shares_Outstanding']
-                    target_ebitda = latest['EBITDA']
-                    target_net_debt = latest['Total_Debt'] - latest['Cash_Equivalents']
-                    
-                    # 1. P/E Valuation
-                    implied_price_pe = median_pe * target_eps
-                    
-                    # 2. EV/EBITDA Valuation
-                    implied_ev = median_ev_ebitda * target_ebitda
-                    implied_equity_ev = implied_ev - target_net_debt
-                    implied_price_ev = implied_equity_ev / latest['Shares_Outstanding']
-                    
-                    # Display Valuation Card
-                    st.markdown("### Relative Valuation (Implied Intrinsic Value)")
-                    st.markdown("Calculated using the median multiples of the peer group (excluding target).")
-                    
-                    rv1, rv2 = st.columns(2)
-                    with rv1:
-                        st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                        st.metric(label="Implied Price (P/E Basis)", value=f"₹ {implied_price_pe:,.2f}", delta=f"Median P/E: {median_pe:.1f}x")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                    with rv2:
-                        st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                        st.metric(label="Implied Price (EV/EBITDA Basis)", value=f"₹ {implied_price_ev:,.2f}", delta=f"Median EV/EBITDA: {median_ev_ebitda:.1f}x")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                else:
-                    st.warning("Insufficient peers for Relative Valuation calculation.")
-                    implied_price_pe = None
-                    implied_price_ev = None
-
-                # Display Comparative Table
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                st.dataframe(peer_df.style.format("{:.2f}").background_gradient(cmap="Blues"), use_container_width=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                # Visual Comparison Charts
-                col_v1, col_v2 = st.columns(2)
-                
-                with col_v1:
-                    st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                    # Scatter Plot for Valuation vs Profitability
-                    fig_scatter = px.scatter(peer_df, x='ROE (%)', y='P/E Ratio', text=peer_df.index, size='Revenue (Cr)', title="P/E vs ROE (Size = Revenue)", color=peer_df.index)
-                    fig_scatter.update_traces(textposition='top center')
-                    fig_scatter = format_chart(fig_scatter)
-                    st.plotly_chart(fig_scatter, use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                with col_v2:
-                    st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                    # Grouped Bar for Multiples
-                    fig_ev = go.Figure()
-                    fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['P/E Ratio'], name='P/E'))
-                    fig_ev.add_trace(go.Bar(x=peer_df.index, y=peer_df['EV/EBITDA'], name='EV/EBITDA'))
-                    fig_ev.update_layout(title="Valuation Multiples", barmode='group')
-                    fig_ev = format_chart(fig_ev)
-                    st.plotly_chart(fig_ev, use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                st.markdown("### Profitability & Efficiency Comparison")
-                col_p1, col_p2 = st.columns(2)
-                
-                with col_p1:
-                    st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                    fig_roe = px.bar(peer_df, x=peer_df.index, y='ROE (%)', title="Return on Equity (ROE)", color=peer_df.index, text_auto='.1f')
-                    fig_roe = format_chart(fig_roe)
-                    st.plotly_chart(fig_roe, use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    
-                with col_p2:
-                    st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                    fig_marg = go.Figure()
-                    fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['EBITDA Margin (%)'], name='EBITDA Margin'))
-                    fig_marg.add_trace(go.Bar(x=peer_df.index, y=peer_df['Net Profit Margin (%)'], name='Net Margin'))
-                    fig_marg.update_layout(title="Operating Margins", barmode='group')
-                    fig_marg = format_chart(fig_marg)
-                    st.plotly_chart(fig_marg, use_container_width=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.info("No peers available for comparison (only 1 company in dataset).")
-                implied_price_pe = None
-                implied_price_ev = None
-                
-        # Tab 5: Report
-        with t5:
-            st.markdown("### Generate Investment Note")
+            st.markdown('<div class="content-card">', unsafe_allow_html=True)
+            st.dataframe(peer_df.style.format("{:.1f}").background_gradient(cmap="Blues"), use_container_width=True)
             
-            if st.button("Download PDF Report"):
-                # Use retrieved relative values if they exist in scope (calculated in t4)
-                # Need to ensure they are available even if t4 wasn't clicked first (Streamlit rerun logic usually handles this if defined in main flow, 
-                # but to be safe we'll recalc if needed or rely on script execution order)
-                
-                # Recalculating relative values for PDF safety since they are inside the t4 block
-                # A cleaner way is to move calc outside, but for now we'll re-run light calc or rely on scope.
-                # Actually, in Streamlit, variables inside `with t4:` might not be accessible in `with t5:` if t4 hasn't run.
-                # Best practice: Move calculation logic *before* the tabs.
-                
-                # --- RE-CALCULATING FOR PDF SAFETY ---
-                if 'peer_df' in locals() and not peer_df.empty:
-                    val_peers = peer_df[peer_df.index != ticker]
-                    if not val_peers.empty:
-                         m_pe = val_peers['P/E Ratio'].median()
-                         m_ev = val_peers['EV/EBITDA'].median()
-                         pdf_imp_pe = m_pe * (latest['Net_Income'] / latest['Shares_Outstanding'])
-                         
-                         i_ev = m_ev * latest['EBITDA']
-                         i_eq = i_ev - (latest['Total_Debt'] - latest['Cash_Equivalents'])
-                         pdf_imp_ev = i_eq / latest['Shares_Outstanding']
-                    else:
-                        pdf_imp_pe = None
-                        pdf_imp_ev = None
-                else:
-                    pdf_imp_pe = None
-                    pdf_imp_ev = None
-                    
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                fig_scat = px.scatter(peer_df, x='ROE', y='P/E', size='Rev (Cr)', text=peer_df.index, title="P/E vs ROE", color=peer_df.index)
+                st.plotly_chart(format_chart(fig_scat), use_container_width=True)
+            with col_v2:
+                fig_bar = px.bar(peer_df, x=peer_df.index, y='EV/EBITDA', title="EV/EBITDA Multiples", color=peer_df.index)
+                st.plotly_chart(format_chart(fig_bar), use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with t5:
+            st.markdown("#### Investment Memo")
+            st.markdown('<div class="content-card" style="text-align:center;">', unsafe_allow_html=True)
+            st.markdown("Generate a professional-grade PDF report including all models, charts, and risk assessments.")
+            
+            pdf_imp_pe, pdf_imp_ev = None, None
+            if not peer_df.empty:
+                vp = peer_df[peer_df.index != ticker]
+                if not vp.empty:
+                    pdf_imp_pe = vp['P/E'].median() * (latest['Net_Income'] / latest['Shares_Outstanding'])
+                    i_ev = vp['EV/EBITDA'].median() * latest['EBITDA']
+                    pdf_imp_ev = (i_ev - (latest['Total_Debt'] - latest['Cash_Equivalents'])) / latest['Shares_Outstanding']
+
+            if st.button("Generate & Download Report", type="primary"):
                 pdf_bytes = generate_pdf(ticker, target_price, upside, final_wacc, ke, kd, s_tg, proj_df, latest, peer_df, df, risks, pdf_imp_pe, pdf_imp_ev)
                 b64 = base64.b64encode(pdf_bytes).decode()
-                href = f'<a href="data:application/pdf;base64,{b64}" download="{ticker}_Valuation_Report.pdf" style="background-color:#2c3e50; color:white; padding:10px 20px; text-decoration:none; border-radius:5px;">Download PDF File</a>'
+                href = f'<a href="data:application/pdf;base64,{b64}" download="{ticker}_Report.pdf" style="text-decoration:none; color:white; background-color:#2c3e50; padding:12px 24px; border-radius:8px; font-weight:bold;">Click to Save PDF</a>'
                 st.markdown(href, unsafe_allow_html=True)
-                st.success("Report generated successfully.")
-                
+            st.markdown('</div>', unsafe_allow_html=True)
+
     else:
-        st.info("👋 Welcome to IFAVP. Please upload the 'fmcg_data_detailed.xlsx' file to begin.")
+        st.info("👋 Welcome to Sentinel. Use the sidebar to upload your financial model or download the template.")
 
 if __name__ == "__main__":
     main()
