@@ -6,3 +6,4 @@ fpdf
 yfinance
 xlsxwriter
 openpyxl
+matplotlib
